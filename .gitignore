@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv
+env/
+venv/
+.env
+.env.*
+
+# RVC specific artifacts
+rvc/env/
+rvc/logs/
+rvc/outputs/
+rvc/models/custom/
+
+# IDE / tooling
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Misc
+*.log
+*.tmp
+*.exe
+*.pt
+*.onnx
+*.pyc
+*.pth
+*.index
+*.mp3
+*.flac
+*.ogg
+*.m4a
+*.bin
+*.wav
+*.txt
+*.zip
+*.png
+*.safetensors
+
+assets/audios
+assets/datasets
+logs
+rvc/models
+env
+venv
+.venv

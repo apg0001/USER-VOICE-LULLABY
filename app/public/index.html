@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Applio API Console</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+        background-color: #0b0d12;
+        color: #f7f8fc;
+      }
+      body {
+        margin: 0;
+        padding: 2rem;
+      }
+      h1,
+      h2 {
+        margin-top: 0;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 1.5rem;
+      }
+      form {
+        background: #141820;
+        border: 1px solid #1f2532;
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+      }
+      label {
+        display: flex;
+        flex-direction: column;
+        font-size: 0.9rem;
+        gap: 0.4rem;
+        margin-bottom: 1rem;
+      }
+      input {
+        padding: 0.6rem 0.8rem;
+        border-radius: 8px;
+        border: 1px solid #2c3547;
+        background: #0b0f16;
+        color: inherit;
+      }
+      button {
+        border: none;
+        border-radius: 8px;
+        padding: 0.65rem 1rem;
+        font-size: 0.95rem;
+        cursor: pointer;
+        background: linear-gradient(120deg, #6366f1, #14b8a6);
+        color: white;
+      }
+      .result {
+        background: #0f131b;
+        border-radius: 10px;
+        padding: 1rem;
+        font-family: "JetBrains Mono", "Fira Code", monospace;
+        font-size: 0.85rem;
+        overflow-x: auto;
+        border: 1px solid #202635;
+        min-height: 80px;
+        white-space: pre-wrap;
+      }
+      .health {
+        margin-bottom: 2rem;
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+      }
+      .health button {
+        flex-shrink: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Applio FastAPI Console</h1>
+      <p>REST API를 바로 호출할 수 있는 최소한의 정적 페이지입니다.</p>
+    </header>
+
+    <section class="health">
+      <button id="health-btn">/ 헬스체크</button>
+      <div id="health-result" class="result">클릭하여 상태 확인</div>
+    </section>
+
+    <div class="grid">
+      <section>
+        <h2>Train API</h2>
+        <form id="train-form">
+          <label>
+            모델 이름 (logs에 저장)
+            <input
+              name="model_name"
+              placeholder="my_rvc_model"
+              required
+              autocomplete="off"
+            />
+          </label>
+          <label>
+            데이터셋 경로
+            <input
+              name="dataset_path"
+              placeholder="datasets/my_dataset"
+              required
+              autocomplete="off"
+            />
+          </label>
+          <label>
+            샘플레이트 (선택)
+            <input
+              name="sample_rate"
+              type="number"
+              min="16000"
+              max="48000"
+              placeholder="기본 40000"
+            />
+          </label>
+          <label>
+            총 Epoch (선택)
+            <input
+              name="total_epoch"
+              type="number"
+              min="1"
+              max="1000"
+              placeholder="기본 200"
+            />
+          </label>
+          <label>
+            배치 크기 (선택)
+            <input
+              name="batch_size"
+              type="number"
+              min="1"
+              max="32"
+              placeholder="기본 4"
+            />
+          </label>
+          <button type="submit">학습 시작</button>
+        </form>
+        <div id="train-result" class="result"></div>
+      </section>
+
+      <section>
+        <h2>Inference API</h2>
+        <form id="inference-form">
+          <label>
+            입력 오디오 경로
+            <input
+              name="input_audio_path"
+              placeholder="test/input.wav"
+              required
+              autocomplete="off"
+            />
+          </label>
+          <label>
+            모델 (.pth) 경로
+            <input
+              name="model_path"
+              placeholder="logs/my_model/G_20000.pth"
+              required
+              autocomplete="off"
+            />
+          </label>
+          <label>
+            인덱스 경로 (.index, 선택)
+            <input
+              name="index_path"
+              placeholder="logs/my_model/added_IVF.index"
+              autocomplete="off"
+            />
+          </label>
+          <label>
+            출력 디렉토리
+            <input name="output_dir" placeholder="outputs" />
+          </label>
+          <button type="submit">추론 실행</button>
+        </form>
+        <div id="inference-result" class="result"></div>
+      </section>
+    </div>
+
+    <script type="module" src="/static/main.js"></script>
+  </body>
+</html>
+
