@@ -35,6 +35,33 @@ const handleRequest = async (url, payload, target) => {
   }
 };
 
+const handleFormDataRequest = async (url, formData, target) => {
+  const box = jsonBox(target);
+  prettyPrint(target, { status: "요청 중..." });
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      body: formData, // 헤더에 Content-Type 수동 지정 X (브라우저가 처리)
+    });
+
+    let data;
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      data = await response.json();
+    } else {
+      data = await response.text();
+    }
+
+    if (!response.ok) {
+      throw data;
+    }
+    prettyPrint(target, data);
+  } catch (error) {
+    prettyPrint(target, { error });
+  }
+};
+
 document.getElementById("health-btn").addEventListener("click", async () => {
   const target = "health-result";
   prettyPrint(target, { status: "요청 중..." });
@@ -80,3 +107,30 @@ document
     );
   });
 
+  document
+  .getElementById("train-upload-form")
+  .addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+
+    const formData = new FormData();
+    formData.append("model_name", form.model_name.value);
+
+    if (form.sample_rate.value.trim().length > 0) {
+      formData.append("sample_rate", form.sample_rate.value);
+    }
+    if (form.total_epoch.value.trim().length > 0) {
+      formData.append("total_epoch", form.total_epoch.value);
+    }
+    if (form.batch_size.value.trim().length > 0) {
+      formData.append("batch_size", form.batch_size.value);
+    }
+
+    // multiple 파일들 추가
+    const files = form.files.files;
+    for (let i = 0; i < files.length; i++) {
+      formData.append("files", files[i]); // FastAPI: files: List[UploadFile] = File(...)
+    }
+
+    handleFormDataRequest("/train-files", formData, "train-upload-result");
+  });

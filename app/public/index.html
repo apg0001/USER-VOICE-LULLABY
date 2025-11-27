@@ -89,6 +89,62 @@
 
     <div class="grid">
       <section>
+        <h2>Train API (파일 업로드)</h2>
+        <form id="train-upload-form" enctype="multipart/form-data">
+          <label>
+            모델 이름 (logs에 저장)
+            <input
+              name="model_name"
+              placeholder="my_rvc_model"
+              required
+              autocomplete="off"
+            />
+          </label>
+          <label>
+            샘플레이트 (선택)
+            <input
+              name="sample_rate"
+              type="number"
+              min="16000"
+              max="48000"
+              placeholder="기본 40000"
+            />
+          </label>
+          <label>
+            총 Epoch (선택)
+            <input
+              name="total_epoch"
+              type="number"
+              min="1"
+              max="1000"
+              placeholder="기본 200"
+            />
+          </label>
+          <label>
+            배치 크기 (선택)
+            <input
+              name="batch_size"
+              type="number"
+              min="1"
+              max="32"
+              placeholder="기본 4"
+            />
+          </label>
+          <label>
+            학습용 음성 파일들 (mp3/wav, 다중 선택 가능)
+            <input
+              name="files"
+              type="file"
+              accept=".wav,.mp3,.flac,.m4a"
+              multiple
+              required
+            />
+          </label>
+          <button type="submit">파일로 학습 시작</button>
+        </form>
+        <div id="train-upload-result" class="result"></div>
+      </section>
+      <section>
         <h2>Train API</h2>
         <form id="train-form">
           <label>

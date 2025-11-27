@@ -12,10 +12,29 @@ from pydantic import BaseModel, Field
 from .services import run_inference, train_model
 from .settings import INFERENCE_DEFAULTS, TRAINING_DEFAULTS
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+LOGS_DIR = PROJECT_ROOT / "logs"
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE_PATH = LOGS_DIR / "app.log"
+
+# 롤링 파일 핸들러 (최대 100MB, 백업 10개)
+handler = RotatingFileHandler(
+    filename=str(LOG_FILE_PATH),
+    maxBytes=100 * 1024 * 1024,  # 100MB
+    backupCount=10,
+    encoding="utf-8"
+)
+
 logging.basicConfig(
-    level=logging.INFO, format="[%(asctime)s] %(levelname)s - %(name)s - %(message)s"
+    level=logging.DEBUG, format="[%(asctime)s] %(levelname)s - %(name)s - %(message)s"
 )
 logger = logging.getLogger("applio.api")
+
+# 기존 핸들러 제거 후 추가 (중복 방지용)
+if logger.hasHandlers():
+    logger.handlers.clear()
+
+logger.addHandler(handler)
 
 APP_DIR = Path(__file__).resolve().parent
 PUBLIC_DIR = APP_DIR / "public"
@@ -118,3 +137,53 @@ async def serve_ui():
         raise HTTPException(status_code=404, detail="정적 UI 파일을 찾을 수 없습니다.")
     return FileResponse(index_path)
 
+
+###############################################################################################################
+
+from fastapi import UploadFile, Form, Depends, File
+from typing import List
+import os
+
+# 프로젝트 루트 디렉토리를 기준으로 RVC 관련 경로 설정
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+RVC_ROOT = PROJECT_ROOT / "applio"
+
+@app.post("/train-files")
+async def start_training2(
+    model_name: str = Form(...),
+    sample_rate: int = Form(TRAINING_DEFAULTS.sample_rate),
+    total_epoch: int = Form(TRAINING_DEFAULTS.total_epoch),
+    batch_size: int = Form(TRAINING_DEFAULTS.batch_size),
+    files: List[UploadFile] = File(...)
+):
+    try:
+        dataset_path = RVC_ROOT / f"/datasets/{model_name}"
+        os.makedirs(dataset_path, exist_ok=True)
+        logger.debug(f"데이터셋 저장 경로 생성: {dataset_path}")
+        
+        for idx, file in enumerate(files):
+            ext = file.filename.split(".")[-1]
+            file_path = os.path.join(dataset_path, f"audio_{idx+1:03d}.{ext}")
+            with open(file_path, "wb") as f:
+                content = await file.read()
+                f.write(content)
+            logger.debug(f"개별 업로드 파일 저장: {idx}: {file_path}-{file.filename}")
+    except Exception as exc:
+        logger.exception(f"데이터셋 저장 중 오류 발생: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+        
+    try:
+        result = await train_model(
+            model_name=model_name,
+            dataset_path=dataset_path,
+            sample_rate=sample_rate,
+            total_epoch=total_epoch,
+            batch_size=batch_size,
+        )
+        return {"status": "running", **result}
+    except FileNotFoundError as exc:
+        logger.error("Train request failed: %s", exc)
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Unexpected training error")
+        raise HTTPException(status_code=500, detail=str(exc))
