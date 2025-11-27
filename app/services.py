@@ -8,20 +8,27 @@ from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
+# 프로젝트 루트 디렉토리를 기준으로 RVC 관련 경로 설정
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RVC_ROOT = PROJECT_ROOT / "applio"
 INNER_RVC = RVC_ROOT / "rvc"
+
+# RVC 루트가 존재하지 않으면 오류 발생
 if not RVC_ROOT.exists():
     raise RuntimeError(f"rvc 디렉터리를 찾을 수 없습니다: {RVC_ROOT}")
 
+# 현재 작업 디렉토리 저장 후 RVC 루트로 변경하여
+# RVC 관련 모듈 임포트 전 환경 설정
 _ORIGINAL_CWD = Path.cwd()
 try:
     if _ORIGINAL_CWD != RVC_ROOT:
-        os.chdir(RVC_ROOT)
+        os.chdir(RVC_ROOT)  # 작업디렉토리 이동
+    # RVC 내부 모듈 경로를 sys.path에 추가하여 임포트 가능하게 설정
     for path in (INNER_RVC, RVC_ROOT):
         path_str = str(path)
         if path.exists() and path_str not in sys.path:
             sys.path.insert(0, path_str)
+    # RVC 핵심 스크립트 임포트
     from core import (
         run_extract_script,
         run_infer_script,
@@ -30,36 +37,37 @@ try:
         run_prerequisites_script
     )
 finally:
-    os.chdir(_ORIGINAL_CWD)
+    os.chdir(_ORIGINAL_CWD)  # 작업 디렉토리 원복
 
+# 설정값 임포트
 from .settings import INFERENCE_DEFAULTS, TRAINING_DEFAULTS
 
 logger = logging.getLogger(__name__)
-RVC_LOGS_DIR = RVC_ROOT / "logs"
-DEFAULT_OUTPUT_DIR = RVC_ROOT / "outputs"
+RVC_LOGS_DIR = RVC_ROOT / "logs"  # 로그 저장 폴더
+DEFAULT_OUTPUT_DIR = RVC_ROOT / "outputs"  # 출력 파일 기본 경로
 
-
+# 디렉토리가 없으면 생성해주는 헬퍼함수
 def _ensure_directory(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     return path
 
-
+# 절대경로 혹은 base 경로 기준 절대경로 변환
 def _resolve_path(input_path: str, base: Path) -> Path:
     path_obj = Path(input_path)
     if not path_obj.is_absolute():
         path_obj = base / path_obj
     return path_obj.resolve()
 
-
+# 모델별 로그 디렉토리 생성 및 반환
 def _logs_dir(model_name: str) -> Path:
     return _ensure_directory(RVC_LOGS_DIR / model_name)
 
-
+# 차단(blocking) 함수 비동기 실행 도와주는 헬퍼
 async def _run_blocking(func, *args, **kwargs):
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, lambda: func(*args, **kwargs))
 
-
+# 모델 학습 함수, 비동기로 학습 스크립트 호출
 async def train_model(
     model_name: str,
     dataset_path: str,
@@ -78,7 +86,8 @@ async def train_model(
 
     model_dir = _logs_dir(model_name)
     logger.info("Training start | model=%s dataset=%s", model_name, dataset)
-    
+
+    # prerequisites, preprocess, extract, train 스크립트를 순차 실행
     await _run_blocking(
         run_prerequisites_script,
         True,
@@ -144,7 +153,7 @@ async def train_model(
         "epochs": total_epoch,
     }
 
-
+# 추론 실행 함수, 비동기로 infer 스크립트 호출
 async def run_inference(
     input_audio_path: str,
     model_path: str,
@@ -212,4 +221,3 @@ async def run_inference(
         "model_path": str(model_file.resolve()),
         "index_path": str(idx_path.resolve()) if idx_path else None,
     }
-

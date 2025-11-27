@@ -19,7 +19,7 @@ class TrainingDefaults:
     total_epoch: int = 200
     save_every_epoch: int = 10
     save_only_latest: bool = True
-    save_every_weights: bool = False
+    save_every_weights: bool = True
     cpu_cores: int = _cpu_cores()
     cut_preprocess: str = "Automatic"
     process_effects: bool = False

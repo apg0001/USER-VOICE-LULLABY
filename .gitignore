@@ -9,6 +9,7 @@ env/
 venv/
 .env
 .env.*
+*.ipynb
 
 # RVC specific artifacts
 rvc/env/
