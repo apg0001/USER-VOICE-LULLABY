@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 import os
 import sys
 from pathlib import Path
@@ -43,7 +44,7 @@ finally:
 from .settings import INFERENCE_DEFAULTS, TRAINING_DEFAULTS
 
 logger = logging.getLogger(__name__)
-RVC_LOGS_DIR = RVC_ROOT / "logs"  # 로그 저장 폴더
+RVC_LOGS_DIR = RVC_ROOT / "logs"  # 모델 저장 폴더
 DEFAULT_OUTPUT_DIR = RVC_ROOT / "outputs"  # 출력 파일 기본 경로
 
 # 디렉토리가 없으면 생성해주는 헬퍼함수
@@ -66,6 +67,49 @@ def _logs_dir(model_name: str) -> Path:
 async def _run_blocking(func, *args, **kwargs):
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, lambda: func(*args, **kwargs))
+
+# 학습 완료 후 학습용 데이터셋 삭제
+async def _remove_dataset(dataset_path):
+    path = Path(dataset_path)
+    if not path.exists():
+        logger.error(f"삭제할 경로를 찾을 수 없습니다: {dataset_path}")
+        raise FileNotFoundError(f"삭제할 경로를 찾을 수 없습니다: {dataset_path}")
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, lambda: shutil.rmtree(path))
+
+# model_dir 내 모든 파일과 폴더를 삭제하되, 확장자가 .pth, .index인 파일은 제외
+async def _remove_preprocess(model_dir):
+    path = Path(model_dir)
+    if not path.exists() or not path.is_dir():
+        raise FileNotFoundError(f"디렉토리를 찾을 수 없거나 디렉토리가 아닙니다: {model_dir}")
+
+    def _clean_dir():
+        for item in path.iterdir():
+            if item.is_file():
+                if item.suffix not in ['.pth', '.index']:
+                    try:
+                        item.unlink()
+                    except Exception as e:
+                        print(f"파일 삭제 실패: {item} - {e}")
+            elif item.is_dir():
+                try:
+                    # 폴더 내 모든 내용 삭제 후 폴더 삭제
+                    import shutil
+                    shutil.rmtree(item)
+                except Exception as e:
+                    print(f"폴더 삭제 실패: {item} - {e}")
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _clean_dir)
+    
+async def _remove_file(file_path: str):
+    path = Path(file_path)
+    if not path.exists() or not path.is_file():
+        raise FileNotFoundError(f"삭제할 파일을 찾을 수 없습니다: {file_path}")
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, path.unlink)
 
 # 모델 학습 함수, 비동기로 학습 스크립트 호출
 async def train_model(
@@ -146,6 +190,15 @@ async def train_model(
     )
 
     logger.info("Training finished | model=%s dir=%s", model_name, model_dir)
+    
+    await _remove_dataset(dataset_path)
+    
+    logger.info("학습용 데이터셋 삭제 완료")
+    
+    await _remove_preprocess(model_dir)
+    
+    logger.info("모델 파일 제외 전처리 데이터 삭제 완료")
+    
     return {
         "model_name": model_name,
         "logs_dir": str(model_dir.resolve()),
@@ -213,6 +266,11 @@ async def run_inference(
         model_file,
         exported,
     )
+    
+    await _remove_file(input_audio_path)
+    
+    logger.info("타깃 음원 삭제 완료")
+    
 
     return {
         "message": message,
