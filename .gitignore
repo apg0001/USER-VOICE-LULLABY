@@ -12,10 +12,18 @@ venv/
 *.ipynb
 
 # RVC specific artifacts
-rvc/env/
-rvc/logs/
-rvc/outputs/
-rvc/models/custom/
+applio/env/
+applio/_env/
+applio/logs/
+applio/outputs/
+applio/models/custom/
+anaconda_projects/
+
+!applio/logs/mute
+!applio/logs/mute_spin
+!applio/logs/mute_spin-v2
+!applio/logs/reference
+!applio/logs/zips
 
 # IDE / tooling
 .vscode/
@@ -50,3 +58,6 @@ rvc/models
 env
 venv
 .venv
+
+# spleeter
+pretrained_models/

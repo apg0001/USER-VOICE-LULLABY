@@ -40,15 +40,15 @@ logger2 = logging.getLogger("fastapi")
 logger1.setLevel(logging.INFO)
 logger2.setLevel(logging.INFO)
 
-# 기존 로그 핸들러 제거 후 새 롤링 핸들러 추가 (중복 방지)
-if logger1.hasHandlers():
-    logger1.handlers.clear()
-logger1.addHandler(handler)
+# # 기존 로그 핸들러 제거 후 새 롤링 핸들러 추가 (중복 방지)
+# if logger1.hasHandlers():
+#     logger1.handlers.clear()
+# logger1.addHandler(handler)
 
-# 기존 로그 핸들러 제거 후 새 롤링 핸들러 추가 (중복 방지)
-if logger2.hasHandlers():
-    logger2.handlers.clear()
-logger2.addHandler(handler)
+# # 기존 로그 핸들러 제거 후 새 롤링 핸들러 추가 (중복 방지)
+# if logger2.hasHandlers():
+#     logger2.handlers.clear()
+# logger2.addHandler(handler)
 
 # FastAPI 정적 파일 제공 경로 설정
 APP_DIR = Path(__file__).resolve().parent
@@ -121,10 +121,10 @@ async def start_training(payload: TrainRequest):
         )
         return {"status": "running", **result}
     except FileNotFoundError as exc:
-        logger.error("Train request failed: %s", exc)
+        logger2.error("Train request failed: %s", exc)
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
-        logger.exception("Unexpected training error")
+        logger2.exception("Unexpected training error")
         raise HTTPException(status_code=500, detail=str(exc))
 
 # 추론 시작 요청 처리
@@ -139,10 +139,10 @@ async def start_inference(payload: InferenceRequest):
         )
         return {"status": "completed", **result}
     except FileNotFoundError as exc:
-        logger.error("Inference request failed: %s", exc)
+        logger2.error("Inference request failed: %s", exc)
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
-        logger.exception("Unexpected inference error")
+        logger2.exception("Unexpected inference error")
         raise HTTPException(status_code=500, detail=str(exc))
 
 # UI 정적 페이지 제공 (index.html)
@@ -174,14 +174,14 @@ async def start_training2(
     batch_size: int = Form(TRAINING_DEFAULTS.batch_size),
     files: List[UploadFile] = File(...)
 ):
-    logger.info(
+    logger2.info(
         f"파일 업로드 학습 요청 mn: {model_name}, sr: {sample_rate}, e: {total_epoch}, bs: {batch_size}, f: {len(files)}"
     )
     try:
         # 모델명 기준 폴더 생성 (datasets 하위)
         dataset_path = DATASET_ROOT / model_name
         os.makedirs(dataset_path, exist_ok=True)
-        logger.info(f"데이터셋 저장 경로 생성: {dataset_path}")
+        logger2.info(f"데이터셋 저장 경로 생성: {dataset_path}")
 
         # 업로드한 파일들 순차적으로 저장
         for idx, file in enumerate(files):
@@ -190,9 +190,9 @@ async def start_training2(
             with open(file_path, "wb") as f:
                 content = await file.read()
                 f.write(content)
-            logger.info(f"개별 업로드 파일 저장: {idx}: {file_path}-{file.filename}")
+            logger2.info(f"개별 업로드 파일 저장: {idx}: {file_path}-{file.filename}")
     except Exception as exc:
-        logger.exception(f"데이터셋 저장 중 오류 발생: {exc}")
+        logger2.exception(f"데이터셋 저장 중 오류 발생: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
 
     try:
@@ -206,10 +206,10 @@ async def start_training2(
         )
         return {"status": "running", **result}
     except FileNotFoundError as exc:
-        logger.error("Train request failed: %s", exc)
+        logger2.error("Train request failed: %s", exc)
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
-        logger.exception("Unexpected training error")
+        logger2.exception("Unexpected training error")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -221,22 +221,22 @@ async def start_inference_files(
     index_path: Optional[str] = Form(None, description="선택적 .index 파일 경로"),
     output_dir: str = Form("outputs", description="출력 디렉토리 (기본값: outputs)")
 ):
-    logger.info(f"파일 업로드 추론 요청: {target_audio.filename}, model: {model_path}")
+    logger2.info(f"파일 업로드 추론 요청: {target_audio.filename}, model: {model_path}")
 
     try:
         # 모델명 기준 폴더 생성 (datasets 하위)
         AUDIO_ROOT = DATASET_ROOT / "target_audio"
         os.makedirs(AUDIO_ROOT, exist_ok=True)
-        logger.info(f"타깃 오디오 저장 경로 생성: {AUDIO_ROOT}")
+        logger1.info(f"타깃 오디오 저장 경로 생성: {AUDIO_ROOT}")
         
         temp_audio_path = AUDIO_ROOT / f"temp_inference_{uuid4().hex}.{target_audio.filename.split('.')[-1]}"
         with open(temp_audio_path, "wb") as f:
             content = await target_audio.read()
             f.write(content)
             
-        logger.info(f"임시 오디오 파일 저장 완료: {temp_audio_path}")
+        logger1.info(f"임시 오디오 파일 저장 완료: {temp_audio_path}")
     except Exception as exc:
-        logger.exception(f"타깃 오디오 저장 중 오류 발생: {exc}")
+        logger1.exception(f"타깃 오디오 저장 중 오류 발생: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
 
     try:
@@ -248,8 +248,8 @@ async def start_inference_files(
         )
         return {"status": "completed", **result}
     except FileNotFoundError as exc:
-        logger.error("Inference request failed: %s", exc)
+        logger1.error("Inference request failed: %s", exc)
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
-        logger.exception("Unexpected inference error")
+        logger1.exception("Unexpected inference error")
         raise HTTPException(status_code=500, detail=str(exc))
