@@ -217,7 +217,7 @@ async def start_training2(
 # 파일 업로드로 추론 시작 요청 처리
 @app.post("/inference-files")
 async def start_inference_files(
-    target_audio: UploadFile = File(..., description="변환할 입력 오디오 파일"),
+    target_audio: UploadFile = File(..., description="변환할 입력 오디오 파일 경로"),
     model_path: str = Form(..., description=".pth 모델 가중치 경로"),
     index_path: Optional[str] = Form(None, description="선택적 .index 파일 경로"),
     output_dir: str = Form("outputs", description="출력 디렉토리 (기본값: outputs)")

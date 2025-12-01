@@ -11,6 +11,9 @@ venv/
 .env.*
 *.ipynb
 
+# jupyter notebook
+.ipynb_checkpoints/
+
 # RVC specific artifacts
 applio/env/
 applio/_env/

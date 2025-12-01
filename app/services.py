@@ -293,12 +293,12 @@ async def run_inference(
         return {
             "message": f"보컬 분리 → 변환 → 합성 완료 | {vocal_message}",
             "output_path": str(final_output_path),
-            "input_audio": str(input_path.resolve()),
+            # "input_audio": str(input_path.resolve()),
             "model_path": str(model_file.resolve()),
             "index_path": str(idx_path.resolve()) if idx_path else None,
-            "vocal_separated": str(vocals_path),
-            "instrumental": str(instrumental_path),
-            "vocal_inferred": str(vocal_exported),
+            # "vocal_separated": str(vocals_path),
+            # "instrumental": str(instrumental_path),
+            # "vocal_inferred": str(vocal_exported),
         }
 
     finally:
