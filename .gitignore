@@ -15,7 +15,7 @@ venv/
 applio/env/
 applio/_env/
 applio/logs/
-applio/outputs/
+applio/output/
 applio/models/custom/
 anaconda_projects/
 

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -253,3 +253,15 @@ async def start_inference_files(
     except Exception as exc:
         logger1.exception("Unexpected inference error")
         raise HTTPException(status_code=500, detail=str(exc))
+    
+@app.get("/download")
+async def download_file(path: str = Query(..., description="서버 내 결과 오디오 파일 경로")):
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    filename = os.path.basename(path)
+    return FileResponse(
+        path,
+        filename=filename,
+        media_type="audio/wav",
+    )
