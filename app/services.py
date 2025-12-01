@@ -1,22 +1,19 @@
 from __future__ import annotations
 
 import asyncio
-import logging
-import shutil
-import librosa
 import os
+import shutil
 import sys
-import numpy as np
-import soundfile as sf
 from pathlib import Path
 from typing import Optional
 from uuid import uuid4
+
+import librosa
+import numpy as np
+import soundfile as sf
 from spleeter.separator import Separator
 
-
-
-# 프로젝트 루트 디렉토리를 기준으로 RVC 관련 경로 설정
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+from .logging_config import PROJECT_ROOT, get_logger
 RVC_ROOT = PROJECT_ROOT / "applio"
 INNER_RVC = RVC_ROOT / "rvc"
 
@@ -49,11 +46,7 @@ finally:
 # 설정값 임포트
 from .settings import INFERENCE_DEFAULTS, TRAINING_DEFAULTS
 
-logger = logging.getLogger(__name__)
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s'))
-logger.addHandler(console_handler)
-logger.setLevel(logging.INFO)
+logger = get_logger(__name__)
 
 RVC_LOGS_DIR = RVC_ROOT / "logs"  # 모델 저장 폴더
 DEFAULT_OUTPUT_DIR = RVC_ROOT / "outputs"  # 출력 파일 기본 경로
@@ -89,7 +82,7 @@ async def _remove_dataset(dataset_path):
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, lambda: shutil.rmtree(path))
 
-# model_dir 내 모든 파일과 폴더를 삭제하되, 확장자가 .pth, .index인 파일은 제외
+# model_dir 내 모든 파일과 폴더를 삭제하되, 확장자가 .pth 인 파일만 유지
 async def _remove_preprocess(model_dir):
     path = Path(model_dir)
     if not path.exists() or not path.is_dir():
@@ -98,18 +91,17 @@ async def _remove_preprocess(model_dir):
     def _clean_dir():
         for item in path.iterdir():
             if item.is_file():
-                if item.suffix not in ['.pth', '.index']:
+                if item.suffix not in [".pth", ".index"]:
                     try:
                         item.unlink()
                     except Exception as e:
-                        print(f"파일 삭제 실패: {item} - {e}")
+                        logger.warning(f"파일 삭제 실패: {item} - {e}")
             elif item.is_dir():
                 try:
                     # 폴더 내 모든 내용 삭제 후 폴더 삭제
-                    import shutil
                     shutil.rmtree(item)
                 except Exception as e:
-                    print(f"폴더 삭제 실패: {item} - {e}")
+                    logger.warning(f"폴더 삭제 실패: {item} - {e}")
 
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, _clean_dir)
@@ -201,14 +193,19 @@ async def train_model(
     )
 
     logger.info("Training finished | model=%s dir=%s", model_name, model_dir)
-    
-    # await _remove_dataset(dataset_path)
-    
-    # logger.info("학습용 데이터셋 삭제 완료")
-    
-    # await _remove_preprocess(model_dir)
-    
-    # logger.info("모델 파일 제외 전처리 데이터 삭제 완료")
+
+    # 학습용 데이터셋 및 중간 산출물 정리
+    try:
+        await _remove_dataset(dataset_path)
+        logger.info("학습용 데이터셋 삭제 완료: %s", dataset_path)
+    except FileNotFoundError:
+        logger.warning("삭제 대상 데이터셋 경로 없음: %s", dataset_path)
+
+    try:
+        await _remove_preprocess(model_dir)
+        logger.info("모델 .pth 파일을 제외한 전처리 산출물 삭제 완료: %s", model_dir)
+    except FileNotFoundError:
+        logger.warning("전처리 디렉토리 삭제 대상 없음: %s", model_dir)
     
     return {
         "model_name": model_name,
