@@ -19,6 +19,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 LOGS_DIR = PROJECT_ROOT / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)  # 없으면 생성
 LOG_FILE_PATH = LOGS_DIR / "app.log"
+ALLOWED_ROOT = PROJECT_ROOT / "applio/output"
 
 # 로그 롤링 핸들러: 최대 100MB, 최대 10개 파일 유지
 handler = RotatingFileHandler(
@@ -255,8 +256,10 @@ async def start_inference_files(
         raise HTTPException(status_code=500, detail=str(exc))
     
 @app.get("/download")
-async def download_file(path: str = Query(..., description="서버 내 결과 오디오 파일 경로")):
-    if not os.path.exists(path):
+async def download_file(path: str = Query(..., description="오디오 파일 이름")):
+    requested_path = (ALLOWED_ROOT / path).resolve()
+    logger2.info(f"다운로드 요청: {requested_path}")
+    if not requested_path.is_file() or not requested_path.is_relative_to(ALLOWED_ROOT):
         raise HTTPException(status_code=404, detail="File not found")
     
     filename = os.path.basename(path)
