@@ -54,6 +54,8 @@ Thumbs.db
 *.png
 *.safetensors
 
+!requirements.txt
+
 assets/audios
 assets/datasets
 logs

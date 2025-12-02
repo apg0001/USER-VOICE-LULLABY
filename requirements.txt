@@ -1,0 +1,3 @@
+# Aggregate dependencies for both the RVC core and FastAPI app
+-r app/requirements.txt
+-r applio/requirements.txt
