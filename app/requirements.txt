@@ -4,4 +4,3 @@ uvicorn[standard]>=0.32.0
 python-multipart
 psutil
 nvidia-ml-py3
-pynvml
