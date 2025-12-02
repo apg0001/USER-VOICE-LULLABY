@@ -128,7 +128,7 @@ async def health_check() -> HealthResponse:
         gpu_list = []
         for i in range(count):
             handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-            name = pynvml.nvmlDeviceGetName(handle).decode("utf-8")
+            name = pynvml.nvmlDeviceGetName(handle)
             util = pynvml.nvmlDeviceGetUtilizationRates(handle)
             mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
             gpu_list.append(

@@ -200,18 +200,30 @@ async def train_model(
 
     logger.info("Training finished | model=%s dir=%s", model_name, model_dir)
 
+    # 학습이 실제로 완료되었는지 확인 (모델 파일이 생성되었는지 확인)
+    model_files = list(model_dir.glob("*.index"))
+    if not model_files:
+        raise RuntimeError(
+            f"학습이 완료되지 않았습니다. 모델 파일(.index)이 생성되지 않았습니다: {model_dir}"
+        )
+    logger.info(f"생성된 모델 파일 수: {len(model_files)}")
+
     # 학습용 데이터셋 및 중간 산출물 정리
     try:
         await _remove_dataset(dataset_path)
         logger.info("학습용 데이터셋 삭제 완료: %s", dataset_path)
     except FileNotFoundError:
         logger.warning("삭제 대상 데이터셋 경로 없음: %s", dataset_path)
+    except Exception as e:
+        logger.warning(f"데이터셋 삭제 중 오류 발생 (무시): {dataset_path} - {e}")
 
     try:
         await _remove_preprocess(model_dir)
         logger.info("모델 .pth 파일을 제외한 전처리 산출물 삭제 완료: %s", model_dir)
     except FileNotFoundError:
         logger.warning("전처리 디렉토리 삭제 대상 없음: %s", model_dir)
+    except Exception as e:
+        logger.warning(f"전처리 산출물 삭제 중 오류 발생 (무시): {model_dir} - {e}")
 
     return {
         "model_name": model_name,
@@ -247,6 +259,12 @@ async def run_inference(
     # 고유 ID 생성
     unique_id = uuid4().hex
 
+    # 정리용 변수 초기화
+    vocals_path = None
+    instrumental_path = None
+    temp_vocal_output = None
+    separation_folder = None
+
     try:
         # 1단계: 보컬/인스트루멘탈 분리
         logger.info(f"보컬 분리 시작: {input_path}")
@@ -255,6 +273,7 @@ async def run_inference(
         )
         vocals_path = Path(separation_result["vocals"])
         instrumental_path = Path(separation_result["instrumental"])
+        separation_folder = vocals_path.parent  # spleeter가 생성한 폴더
         logger.info(f"분리 완료 - 보컬: {vocals_path}, 인스트: {instrumental_path}")
 
         # 2단계: 보컬만 inference 실행
@@ -296,6 +315,11 @@ async def run_inference(
         )
         logger.info(f"최종 합성 완료: {final_output_path}")
 
+        # 최종 출력 파일이 실제로 생성되었는지 확인
+        final_path = Path(final_output_path)
+        if not final_path.exists() or not final_path.is_file():
+            raise RuntimeError(f"최종 출력 파일이 생성되지 않았습니다: {final_output_path}")
+
         return {
             "message": f"보컬 분리 → 변환 → 합성 완료 | {vocal_message}",
             "output_path": str(final_output_path),
@@ -307,17 +331,32 @@ async def run_inference(
             # "vocal_inferred": str(vocal_exported),
         }
 
+    except Exception as e:
+        # 추론 실패 시 예외를 다시 발생시켜 엔드포인트에서 처리하도록 함
+        logger.error(f"추론 처리 중 오류 발생: {e}")
+        raise
     finally:
-        # 임시 파일 정리
+        # 예외 발생 여부와 관계없이 항상 임시 파일 정리
         cleanup_paths = [
             vocals_path,
             instrumental_path,
-            temp_vocal_output if "temp_vocal_output" in locals() else None,
+            temp_vocal_output,
         ]
         for path in cleanup_paths:
             if path and path.exists():
-                await _remove_file(str(path))
-                logger.info(f"임시 파일 삭제: {path}")
+                try:
+                    await _remove_file(str(path))
+                    logger.info(f"임시 파일 삭제: {path}")
+                except Exception as e:
+                    logger.warning(f"임시 파일 삭제 실패: {path} - {e}")
+
+        # spleeter가 생성한 폴더 전체 삭제 (output_dir/temp_inference_xxx/)
+        if separation_folder and separation_folder.exists() and separation_folder.is_dir():
+            try:
+                await _run_blocking(shutil.rmtree, separation_folder)
+                logger.info(f"임시 추론 폴더 삭제 완료: {separation_folder}")
+            except Exception as e:
+                logger.warning(f"임시 추론 폴더 삭제 실패: {separation_folder} - {e}")
 
 
 async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) -> dict:

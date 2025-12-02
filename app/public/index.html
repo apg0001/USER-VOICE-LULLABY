@@ -201,6 +201,43 @@
       </section>
 
       <section>
+        <h2>Inference API (파일 업로드)</h2>
+        <form id="inference-upload-form" enctype="multipart/form-data">
+          <label>
+            입력 오디오 파일
+            <input
+              name="target_audio"
+              type="file"
+              accept=".wav,.mp3,.flac,.m4a"
+              required
+            />
+          </label>
+          <label>
+            모델 (.pth) 경로
+            <input
+              name="model_path"
+              placeholder="logs/my_model/G_20000.pth"
+              required
+              autocomplete="off"
+            />
+          </label>
+          <label>
+            인덱스 경로 (.index, 선택)
+            <input
+              name="index_path"
+              placeholder="logs/my_model/added_IVF.index"
+              autocomplete="off"
+            />
+          </label>
+          <label>
+            출력 디렉토리
+            <input name="output_dir" placeholder="outputs" />
+          </label>
+          <button type="submit">파일로 추론 실행</button>
+        </form>
+        <div id="inference-upload-result" class="result"></div>
+      </section>
+      <section>
         <h2>Inference API</h2>
         <form id="inference-form">
           <label>

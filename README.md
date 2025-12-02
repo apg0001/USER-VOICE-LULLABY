@@ -131,7 +131,7 @@ result = await queue.enqueue( # 작업 등록 + 완료까지 대기
    - `run_train_script` → 본격 학습, 체크포인트 `.pth`가 `applio/logs/<모델명>`에 저장
 3. 학습 완료 후에는  
    - 요청에 사용된 데이터셋 폴더를 삭제(`_remove_dataset`)  
-   - `applio/logs/<모델명>` 안에서 `.pth`를 제외한 중간 산출물을 비우고(`_remove_preprocess`), 최종 모델 파일만 남긴다.
+   - `applio/logs/<모델명>` 안에서 `.pth`와 `.index`를 제외한 중간 산출물을 비우고(`_remove_preprocess`), 최종 모델 파일과 인덱스 파일만 남긴다.
 4. API 응답에는 모델명, 로그 디렉터리, 학습 파라미터 요약이 포함된다. 최종 모델(.pth)은 `applio/logs/<모델명>`에 존재한다.
 
 ### 추론 흐름 (`/inference`, `/inference-files`)

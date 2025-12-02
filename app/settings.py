@@ -19,7 +19,9 @@ class TrainingDefaults:
     total_epoch: int = 200
     save_every_epoch: int = 10
     save_only_latest: bool = True
-    save_every_weights: bool = True
+    save_every_weights: bool = (
+        False  # 위 설정한 epoch 수 진행할 때마다 모델 / 저장 배포시 False
+    )
     cpu_cores: int = _cpu_cores()
     cut_preprocess: str = "Automatic"
     process_effects: bool = False
@@ -32,8 +34,10 @@ class TrainingDefaults:
     embedder_model: str = "contentvec"
     gpu: int = 0
     include_mutes: int = 2
-    overtraining_detector: bool = False
-    overtraining_threshold: int = 25
+    overtraining_detector: bool = (
+        False  # 과적합 방지(일정 epoch 동안 학습이 되지 않으면 학습 종료)
+    )
+    overtraining_threshold: int = 25  # epoch 수
     pretrained: bool = True
     cleanup: bool = False
     cache_data_in_gpu: bool = False
