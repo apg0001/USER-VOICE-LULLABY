@@ -16,7 +16,11 @@ _LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
 
 def _build_rotating_handler(
-    path: Path, *, level: int = logging.INFO, max_bytes: int = 100 * 1024 * 1024, backups: int = 10
+    path: Path,
+    *,
+    level: int = logging.INFO,
+    max_bytes: int = 100 * 1024 * 1024,
+    backups: int = 10,
 ) -> RotatingFileHandler:
     handler = RotatingFileHandler(
         filename=str(path),
@@ -70,4 +74,3 @@ __all__ = [
     "configure_logging",
     "get_logger",
 ]
-

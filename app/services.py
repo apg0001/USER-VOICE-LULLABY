@@ -14,6 +14,7 @@ import soundfile as sf
 from spleeter.separator import Separator
 
 from .logging_config import PROJECT_ROOT, get_logger
+
 RVC_ROOT = PROJECT_ROOT / "applio"
 INNER_RVC = RVC_ROOT / "rvc"
 
@@ -38,7 +39,7 @@ try:
         run_infer_script,
         run_preprocess_script,
         run_train_script,
-        run_prerequisites_script
+        run_prerequisites_script,
     )
 finally:
     os.chdir(_ORIGINAL_CWD)  # 작업 디렉토리 원복
@@ -51,10 +52,12 @@ logger = get_logger(__name__)
 RVC_LOGS_DIR = RVC_ROOT / "logs"  # 모델 저장 폴더
 DEFAULT_OUTPUT_DIR = RVC_ROOT / "outputs"  # 출력 파일 기본 경로
 
+
 # 디렉토리가 없으면 생성해주는 헬퍼함수
 def _ensure_directory(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     return path
+
 
 # 절대경로 혹은 base 경로 기준 절대경로 변환
 def _resolve_path(input_path: str, base: Path) -> Path:
@@ -63,14 +66,17 @@ def _resolve_path(input_path: str, base: Path) -> Path:
         path_obj = base / path_obj
     return path_obj.resolve()
 
+
 # 모델별 로그 디렉토리 생성 및 반환
 def _logs_dir(model_name: str) -> Path:
     return _ensure_directory(RVC_LOGS_DIR / model_name)
+
 
 # 차단(blocking) 함수 비동기 실행 도와주는 헬퍼
 async def _run_blocking(func, *args, **kwargs):
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, lambda: func(*args, **kwargs))
+
 
 # 학습 완료 후 학습용 데이터셋 삭제
 async def _remove_dataset(dataset_path):
@@ -82,11 +88,14 @@ async def _remove_dataset(dataset_path):
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, lambda: shutil.rmtree(path))
 
+
 # model_dir 내 모든 파일과 폴더를 삭제하되, 확장자가 .pth 인 파일만 유지
 async def _remove_preprocess(model_dir):
     path = Path(model_dir)
     if not path.exists() or not path.is_dir():
-        raise FileNotFoundError(f"디렉토리를 찾을 수 없거나 디렉토리가 아닙니다: {model_dir}")
+        raise FileNotFoundError(
+            f"디렉토리를 찾을 수 없거나 디렉토리가 아닙니다: {model_dir}"
+        )
 
     def _clean_dir():
         for item in path.iterdir():
@@ -105,7 +114,8 @@ async def _remove_preprocess(model_dir):
 
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, _clean_dir)
-    
+
+
 async def _remove_file(file_path: str):
     path = Path(file_path)
     if not path.exists() or not path.is_file():
@@ -113,6 +123,7 @@ async def _remove_file(file_path: str):
 
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, path.unlink)
+
 
 # 모델 학습 함수, 비동기로 학습 스크립트 호출
 async def train_model(
@@ -135,12 +146,7 @@ async def train_model(
     logger.info("Training start | model=%s dataset=%s", model_name, dataset)
 
     # prerequisites, preprocess, extract, train 스크립트를 순차 실행
-    await _run_blocking(
-        run_prerequisites_script,
-        True,
-        True,
-        True
-    )
+    await _run_blocking(run_prerequisites_script, True, True, True)
 
     await _run_blocking(
         run_preprocess_script,
@@ -206,13 +212,14 @@ async def train_model(
         logger.info("모델 .pth 파일을 제외한 전처리 산출물 삭제 완료: %s", model_dir)
     except FileNotFoundError:
         logger.warning("전처리 디렉토리 삭제 대상 없음: %s", model_dir)
-    
+
     return {
         "model_name": model_name,
         "logs_dir": str(model_dir.resolve()),
         "sample_rate": sample_rate,
         "epochs": total_epoch,
     }
+
 
 # 추론 실행 함수, 비동기로 infer 스크립트 호출
 async def run_inference(
@@ -236,14 +243,16 @@ async def run_inference(
 
     resolved_output_dir = _resolve_path(output_dir, RVC_ROOT)
     output_folder = _ensure_directory(resolved_output_dir)
-    
+
     # 고유 ID 생성
     unique_id = uuid4().hex
-    
+
     try:
         # 1단계: 보컬/인스트루멘탈 분리
         logger.info(f"보컬 분리 시작: {input_path}")
-        separation_result = await separate_vocal_instrumental(str(input_path), str(output_folder))
+        separation_result = await separate_vocal_instrumental(
+            str(input_path), str(output_folder)
+        )
         vocals_path = Path(separation_result["vocals"])
         instrumental_path = Path(separation_result["instrumental"])
         logger.info(f"분리 완료 - 보컬: {vocals_path}, 인스트: {instrumental_path}")
@@ -253,28 +262,28 @@ async def run_inference(
         temp_vocal_output = output_folder / f"{unique_id}_vocal_infer.wav"
         vocal_message, vocal_exported = await _run_blocking(
             run_infer_script,
-            defaults.pitch, 
-            defaults.index_rate, 
-            defaults.volume_envelope, 
+            defaults.pitch,
+            defaults.index_rate,
+            defaults.volume_envelope,
             defaults.protect,
-            defaults.f0_method, 
-            str(vocals_path), 
-            str(temp_vocal_output), 
+            defaults.f0_method,
+            str(vocals_path),
+            str(temp_vocal_output),
             str(model_file),
-            str(idx_path) if idx_path else "", 
-            defaults.split_audio, 
+            str(idx_path) if idx_path else "",
+            defaults.split_audio,
             defaults.f0_autotune,
-            defaults.f0_autotune_strength, 
-            defaults.proposed_pitch, 
+            defaults.f0_autotune_strength,
+            defaults.proposed_pitch,
             defaults.proposed_pitch_threshold,
-            defaults.clean_audio, 
-            defaults.clean_strength, 
+            defaults.clean_audio,
+            defaults.clean_strength,
             defaults.export_format,
-            defaults.embedder_model, 
-            None, 
-            defaults.formant_shifting, 
+            defaults.embedder_model,
+            None,
+            defaults.formant_shifting,
             defaults.formant_qfrency,
-            defaults.formant_timbre, 
+            defaults.formant_timbre,
             defaults.post_process,
         )
         logger.info(f"보컬 inference 완료: {vocal_exported}")
@@ -301,57 +310,60 @@ async def run_inference(
     finally:
         # 임시 파일 정리
         cleanup_paths = [
-            vocals_path, instrumental_path,
-            temp_vocal_output if 'temp_vocal_output' in locals() else None
+            vocals_path,
+            instrumental_path,
+            temp_vocal_output if "temp_vocal_output" in locals() else None,
         ]
         for path in cleanup_paths:
             if path and path.exists():
                 await _remove_file(str(path))
                 logger.info(f"임시 파일 삭제: {path}")
-    
-    
+
+
 async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) -> dict:
     """오디오를 보컬/인스트루멘탈로 분리 (문자열 경로 사용)"""
     input_path = Path(input_audio_path)
     if not input_path.exists():
         raise FileNotFoundError(f"입력 파일 없음: {input_audio_path}")
-    
+
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    
-    separator = Separator('spleeter:2stems')
+
+    separator = Separator("spleeter:2stems")
     separator.separate_to_file(input_audio_path, output_dir)
-    
+
     base_name = input_path.stem
     vocals_path = output_path / base_name / f"vocals.wav"
     instrumental_path = output_path / base_name / f"accompaniment.wav"
-    
-    return {
-        "vocals": str(vocals_path),
-        "instrumental": str(instrumental_path)
-    }
-    
-async def merge_vocal_instrumental(vocals_path: str, instrumental_path: str, output_path: str) -> str:
+
+    return {"vocals": str(vocals_path), "instrumental": str(instrumental_path)}
+
+
+async def merge_vocal_instrumental(
+    vocals_path: str, instrumental_path: str, output_path: str
+) -> str:
     """변환된 보컬과 원본 인스트루멘탈 합성"""
     loop = asyncio.get_running_loop()
-    
+
     def _merge_audio():
         vocals, sr_v = librosa.load(vocals_path, sr=None, mono=True)
         instrumental, sr_i = librosa.load(instrumental_path, sr=None, mono=True)
-        
+
         if sr_v != sr_i:
             raise ValueError("샘플레이트 불일치")
-        
+
         # 길이 맞추기
         max_len = max(len(vocals), len(instrumental))
-        vocals = np.pad(vocals, (0, max_len - len(vocals)), 'constant')
-        instrumental = np.pad(instrumental, (0, max_len - len(instrumental)), 'constant')
-        
+        vocals = np.pad(vocals, (0, max_len - len(vocals)), "constant")
+        instrumental = np.pad(
+            instrumental, (0, max_len - len(instrumental)), "constant"
+        )
+
         # 단순 덧셈 합성
         mixed = vocals + instrumental
-        
+
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         sf.write(output_path, mixed, sr_v)
         return output_path
-    
+
     return await loop.run_in_executor(None, _merge_audio)

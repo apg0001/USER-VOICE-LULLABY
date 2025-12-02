@@ -10,7 +10,7 @@ class AsyncJobQueue:
 
     def __init__(self, name: str):
         self.name = name
-        self._queue: "asyncio.Queue[tuple[Callable[..., Awaitable[Any]], tuple[Any, ...], dict[str, Any], asyncio.Future]]" = asyncio.Queue()
+        self._queue: "asyncio.Queue[tuple[Callable[..., Awaitable[Any]], tuple[Any, ...], dict[str, Any], asyncio.Future]]" = (asyncio.Queue())
         self._worker: asyncio.Task | None = None
         self._active = False
 
@@ -33,7 +33,9 @@ class AsyncJobQueue:
                 await self._worker
             self._worker = None
 
-    async def enqueue(self, coroutine_func: Callable[..., Awaitable[Any]], *args, **kwargs) -> Any:
+    async def enqueue(
+        self, coroutine_func: Callable[..., Awaitable[Any]], *args, **kwargs
+    ) -> Any:
         loop = asyncio.get_running_loop()
         future: "asyncio.Future[Any]" = loop.create_future()
         await self._queue.put((coroutine_func, args, kwargs, future))
@@ -43,7 +45,7 @@ class AsyncJobQueue:
         """현재 큐 상태를 딕셔너리로 반환한다."""
         return {
             "name": self.name,
-            "pending": self.pending,              # 대기 중인 작업 수
+            "pending": self.pending,  # 대기 중인 작업 수
             "running": 1 if self._active else 0,  # 실행 중인 작업 수 (단일 워커)
         }
 
@@ -61,4 +63,3 @@ class AsyncJobQueue:
             finally:
                 self._active = False
                 self._queue.task_done()
-

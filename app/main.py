@@ -42,6 +42,7 @@ app = FastAPI(
 if PUBLIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=PUBLIC_DIR), name="static")
 
+
 # 학습 요청용 데이터 모델
 class TrainRequest(BaseModel):
     model_name: str = Field(..., description="로그 디렉토리에 저장될 모델 이름")
@@ -55,6 +56,7 @@ class TrainRequest(BaseModel):
     batch_size: Optional[int] = Field(
         None, ge=1, le=32, description="배치 사이즈 (기본값 8)"
     )
+
 
 # 추론 요청용 데이터 모델
 class InferenceRequest(BaseModel):
@@ -70,8 +72,8 @@ class InferenceRequest(BaseModel):
 
 class QueueStats(BaseModel):
     name: str
-    running: int   # 실행 중 작업 수
-    pending: int   # 대기 중 작업 수
+    running: int  # 실행 중 작업 수
+    pending: int  # 대기 중 작업 수
 
 
 class HealthResponse(BaseModel):
@@ -80,6 +82,8 @@ class HealthResponse(BaseModel):
     memory_percent: float
     disk_percent: float
     queues: dict[str, QueueStats]
+    gpus: list[dict] | None = None
+
 
 # 설정 객체를 dict로 변환하는 헬퍼 함수
 def _serialize_defaults(defaults) -> dict:
@@ -114,13 +118,43 @@ async def health_check() -> HealthResponse:
         "inference": QueueStats(**inference_queue.stats()),
     }
 
+    # GPU 통계 (NVIDIA NVML이 있으면)
+    gpus = None
+    try:
+        import pynvml
+
+        pynvml.nvmlInit()
+        count = pynvml.nvmlDeviceGetCount()
+        gpu_list = []
+        for i in range(count):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            name = pynvml.nvmlDeviceGetName(handle).decode("utf-8")
+            util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+            mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            gpu_list.append(
+                {
+                    "index": i,
+                    "name": name,
+                    "utilization_percent": float(util.gpu),
+                    "memory_used_mb": round(mem.used / (1024 * 1024), 2),
+                    "memory_total_mb": round(mem.total / (1024 * 1024), 2),
+                }
+            )
+        pynvml.nvmlShutdown()
+        gpus = gpu_list
+    except Exception as e:
+        logging.error(f"GPU info fetch failed: {e}")
+        gpus = None
+
     return HealthResponse(
         status="ok",
         cpu_percent=cpu_percent,
         memory_percent=memory_percent,
         disk_percent=disk_percent,
         queues=queue_stats,
+        gpus=gpus,
     )
+
 
 # 학습 시작 요청 처리
 @app.post("/train")
@@ -142,6 +176,7 @@ async def start_training(payload: TrainRequest):
         logger_fastapi.exception("Unexpected training error")
         raise HTTPException(status_code=500, detail=str(exc))
 
+
 # 추론 시작 요청 처리
 @app.post("/inference")
 async def start_inference(payload: InferenceRequest):
@@ -161,6 +196,7 @@ async def start_inference(payload: InferenceRequest):
         logger_fastapi.exception("Unexpected inference error")
         raise HTTPException(status_code=500, detail=str(exc))
 
+
 # UI 정적 페이지 제공 (index.html)
 @app.get("/ui", include_in_schema=False)
 async def serve_ui():
@@ -179,6 +215,7 @@ from typing import List
 RVC_ROOT = PROJECT_ROOT / "applio"
 DATASET_ROOT = RVC_ROOT / "datasets"
 
+
 # 파일 업로드로 학습 요청 처리
 @app.post("/train-files")
 async def start_training2(
@@ -186,7 +223,7 @@ async def start_training2(
     sample_rate: int = Form(TRAINING_DEFAULTS.sample_rate),
     total_epoch: int = Form(TRAINING_DEFAULTS.total_epoch),
     batch_size: int = Form(TRAINING_DEFAULTS.batch_size),
-    files: List[UploadFile] = File(...)
+    files: List[UploadFile] = File(...),
 ):
     logger_fastapi.info(
         f"파일 업로드 학습 요청 mn: {model_name}, sr: {sample_rate}, e: {total_epoch}, bs: {batch_size}, f: {len(files)}"
@@ -204,7 +241,9 @@ async def start_training2(
             with open(file_path, "wb") as f:
                 content = await file.read()
                 f.write(content)
-            logger_fastapi.info(f"개별 업로드 파일 저장: {idx}: {file_path}-{file.filename}")
+            logger_fastapi.info(
+                f"개별 업로드 파일 저장: {idx}: {file_path}-{file.filename}"
+            )
     except Exception as exc:
         logger_fastapi.exception(f"데이터셋 저장 중 오류 발생: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
@@ -234,21 +273,26 @@ async def start_inference_files(
     target_audio: UploadFile = File(..., description="변환할 입력 오디오 파일 경로"),
     model_path: str = Form(..., description=".pth 모델 가중치 경로"),
     index_path: Optional[str] = Form(None, description="선택적 .index 파일 경로"),
-    output_dir: str = Form("outputs", description="출력 디렉토리 (기본값: outputs)")
+    output_dir: str = Form("outputs", description="출력 디렉토리 (기본값: outputs)"),
 ):
-    logger_fastapi.info(f"파일 업로드 추론 요청: {target_audio.filename}, model: {model_path}")
+    logger_fastapi.info(
+        f"파일 업로드 추론 요청: {target_audio.filename}, model: {model_path}"
+    )
 
     try:
         # 모델명 기준 폴더 생성 (datasets 하위)
         AUDIO_ROOT = DATASET_ROOT / "target_audio"
         os.makedirs(AUDIO_ROOT, exist_ok=True)
         logger_app.info(f"타깃 오디오 저장 경로 생성: {AUDIO_ROOT}")
-        
-        temp_audio_path = AUDIO_ROOT / f"temp_inference_{uuid4().hex}.{target_audio.filename.split('.')[-1]}"
+
+        temp_audio_path = (
+            AUDIO_ROOT
+            / f"temp_inference_{uuid4().hex}.{target_audio.filename.split('.')[-1]}"
+        )
         with open(temp_audio_path, "wb") as f:
             content = await target_audio.read()
             f.write(content)
-            
+
         logger_app.info(f"임시 오디오 파일 저장 완료: {temp_audio_path}")
     except Exception as exc:
         logger_app.exception(f"타깃 오디오 저장 중 오류 발생: {exc}")
@@ -269,14 +313,15 @@ async def start_inference_files(
     except Exception as exc:
         logger_app.exception("Unexpected inference error")
         raise HTTPException(status_code=500, detail=str(exc))
-    
+
+
 @app.get("/download")
 async def download_file(path: str = Query(..., description="오디오 파일 이름")):
     requested_path = (ALLOWED_ROOT / path).resolve()
     logger_fastapi.info(f"다운로드 요청: {requested_path}")
     if not requested_path.is_file() or not requested_path.is_relative_to(ALLOWED_ROOT):
         raise HTTPException(status_code=404, detail="File not found")
-    
+
     filename = os.path.basename(path)
     return FileResponse(
         path,

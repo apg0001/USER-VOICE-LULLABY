@@ -66,4 +66,3 @@ class InferenceDefaults:
 
 TRAINING_DEFAULTS = TrainingDefaults()
 INFERENCE_DEFAULTS = InferenceDefaults()
-
