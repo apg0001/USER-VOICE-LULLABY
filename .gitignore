@@ -17,16 +17,23 @@ venv/
 # RVC specific artifacts
 applio/env/
 applio/_env/
-applio/logs/
 applio/output/
 applio/models/custom/
 anaconda_projects/
+applio/logs/*/
 
-!applio/logs/mute
-!applio/logs/mute_spin
-!applio/logs/mute_spin-v2
-!applio/logs/reference
-!applio/logs/zips
+!applio/logs/mute/
+!applio/logs/mute/**
+!applio/logs/mute_spin/
+!applio/logs/mute_spin/**
+!applio/logs/mute_spin-v2/
+!applio/logs/mute_spin-v2/**
+!applio/logs/reference/
+!applio/logs/reference/**
+!applio/logs/zips/
+!applio/logs/zips/**
+!applio/logs/test/
+!applio/logs/test/**
 
 # IDE / tooling
 .vscode/
@@ -56,9 +63,9 @@ Thumbs.db
 
 !requirements.txt
 
-assets/audios
-assets/datasets
-logs
+applio/assets/audios/
+applio/assets/datasets/
+# logs/
 rvc/models
 env
 venv
@@ -69,3 +76,4 @@ pretrained_models/
 
 # others
 test/
+./logs/
