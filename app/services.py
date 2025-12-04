@@ -318,7 +318,9 @@ async def run_inference(
         # 최종 출력 파일이 실제로 생성되었는지 확인
         final_path = Path(final_output_path)
         if not final_path.exists() or not final_path.is_file():
-            raise RuntimeError(f"최종 출력 파일이 생성되지 않았습니다: {final_output_path}")
+            raise RuntimeError(
+                f"최종 출력 파일이 생성되지 않았습니다: {final_output_path}"
+            )
 
         return {
             "message": f"보컬 분리 → 변환 → 합성 완료 | {vocal_message}",
@@ -351,7 +353,11 @@ async def run_inference(
                     logger.warning(f"임시 파일 삭제 실패: {path} - {e}")
 
         # spleeter가 생성한 폴더 전체 삭제 (output_dir/temp_inference_xxx/)
-        if separation_folder and separation_folder.exists() and separation_folder.is_dir():
+        if (
+            separation_folder
+            and separation_folder.exists()
+            and separation_folder.is_dir()
+        ):
             try:
                 await _run_blocking(shutil.rmtree, separation_folder)
                 logger.info(f"임시 추론 폴더 삭제 완료: {separation_folder}")

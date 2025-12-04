@@ -1,0 +1,22 @@
+# version: "3.8"
+
+services:
+  fastapi-app:
+    build: . # Dockerfile에서 Python 3.10 사용
+    image: applio-fastapi:3.10 # 태그에 버전 명시
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./applio/logs:/app/applio/logs
+      - ./applio/output:/app/applio/output
+    environment:
+      - PYTHON_VERSION=3.10
+      - CUDA_VISIBLE_DEVICES=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped

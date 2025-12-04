@@ -224,6 +224,14 @@ async def start_training2(
     total_epoch: int = Form(TRAINING_DEFAULTS.total_epoch),
     batch_size: int = Form(TRAINING_DEFAULTS.batch_size),
     files: List[UploadFile] = File(...),
+    embedder_model: Optional[str] = Form(
+        TRAINING_DEFAULTS.embedder_model,
+        description="선택적 모델 종류(contentvec or spin-v2)",
+    ),
+    overtraining_detector: Optional[str] = Form(
+        TRAINING_DEFAULTS.overtraining_detector,
+        description="과적합 방지",
+    ),
 ):
     logger_fastapi.info(
         f"파일 업로드 학습 요청 mn: {model_name}, sr: {sample_rate}, e: {total_epoch}, bs: {batch_size}, f: {len(files)}"
@@ -274,6 +282,24 @@ async def start_inference_files(
     model_path: str = Form(..., description=".pth 모델 가중치 경로"),
     index_path: Optional[str] = Form(None, description="선택적 .index 파일 경로"),
     output_dir: str = Form("outputs", description="출력 디렉토리 (기본값: outputs)"),
+    volume_envelope: Optional[float] = Form(
+        INFERENCE_DEFAULTS.volume_envelope,
+        description="선택적 원곡의 다이내믹 강약 정도",
+    ),
+    protect: Optional[float] = Form(
+        INFERENCE_DEFAULTS.protect, description="선택적 원곡 포맷 보호 정도"
+    ),
+    f0_autotune: Optional[bool] = Form(
+        INFERENCE_DEFAULTS.f0_autotune,
+        description="선택적 원곡 피치를 스케일에 맞처 부드럽게 보정",
+    ),
+    f0_autotune_strength: Optional[float] = Form(
+        INFERENCE_DEFAULTS.f0_autotune_strength, description="선택적"
+    ),
+    embedder_model: Optional[str] = Form(
+        INFERENCE_DEFAULTS.embedder_model,
+        description="선택적 모델 종류(contentvec or spin-v2)",
+    ),
 ):
     logger_fastapi.info(
         f"파일 업로드 추론 요청: {target_audio.filename}, model: {model_path}"
