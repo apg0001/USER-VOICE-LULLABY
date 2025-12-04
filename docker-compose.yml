@@ -8,8 +8,8 @@ services:
       - "8000:8000"
     volumes:
       - ./app:/app/app
-      # - ./applio/logs:/app/applio/logs
-      # - ./applio/output:/app/applio/output
+      - ./applio/logs:/app/applio/logs
+      - ./applio/outputs:/app/applio/outputs
     runtime: nvidia
     shm_size: 2gb
     environment:
