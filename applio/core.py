@@ -424,7 +424,9 @@ def run_preprocess_script(
     overlap_len: float,
     normalization_mode: str = "none",
 ):
-    preprocess_script_path = os.path.join("applio", "rvc", "train", "preprocess", "preprocess.py")
+    preprocess_script_path = os.path.join(
+        "applio", "rvc", "train", "preprocess", "preprocess.py"
+    )
     command = [
         python,
         preprocess_script_path,
@@ -557,7 +559,9 @@ def run_train_script(
 
 # Index
 def run_index_script(model_name: str, index_algorithm: str):
-    index_script_path = os.path.join("applio", "rvc", "train", "process", "extract_index.py")
+    index_script_path = os.path.join(
+        "applio", "rvc", "train", "process", "extract_index.py"
+    )
     command = [
         python,
         index_script_path,

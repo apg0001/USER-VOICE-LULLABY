@@ -17,16 +17,23 @@ venv/
 # RVC specific artifacts
 applio/env/
 applio/_env/
-applio/logs/
 applio/output/
 applio/models/custom/
 anaconda_projects/
+applio/logs/*/
 
-!applio/logs/mute
-!applio/logs/mute_spin
-!applio/logs/mute_spin-v2
-!applio/logs/reference
-!applio/logs/zips
+!applio/logs/mute/
+!applio/logs/mute/**
+!applio/logs/mute_spin/
+!applio/logs/mute_spin/**
+!applio/logs/mute_spin-v2/
+!applio/logs/mute_spin-v2/**
+!applio/logs/reference/
+!applio/logs/reference/**
+!applio/logs/zips/
+!applio/logs/zips/**
+!applio/logs/test/
+!applio/logs/test/**
 
 # IDE / tooling
 .vscode/
@@ -38,7 +45,7 @@ Thumbs.db
 *.log
 *.tmp
 *.exe
-*.pt
+# *.pt
 *.onnx
 *.pyc
 *.pth
@@ -48,19 +55,28 @@ Thumbs.db
 *.ogg
 *.m4a
 *.bin
-*.wav
+# *.wav
 *.txt
 *.zip
 *.png
 *.safetensors
 
-assets/audios
-assets/datasets
-logs
-rvc/models
+!requirements.txt
+
+applio/assets/audios/
+applio/assets/datasets/
+# logs/
+applio/rvc/models/embedders/*.pt
+applio/rvc/models/formant/*.pt
+applio/rvc/models/predictors/*.pt
+applio/rvc/models/pretrained/hifi-gan/*.pt
 env
 venv
 .venv
 
 # spleeter
 pretrained_models/
+
+# others
+test/
+./logs/

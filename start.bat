@@ -1,18 +1,20 @@
 @echo off
-
-REM 서버 설정 (여기서 변경)
+chcp 65001>nul
 set HOST=127.0.0.1
 set PORT=8000
+set LOG_DIR=logs
+set APP_LOG=%LOG_DIR%\debug.log
 
-mkdir logs 2>nul
+REM 로그 디렉토리 생성
+if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 
-REM 기존 uvicorn 프로세스 종료
-for /f "tokens=2" %%i in ('tasklist /FI "IMAGENAME eq python.exe" /FO CSV ^| findstr /I "uvicorn app.main:app --host %HOST% --port %PORT%"') do (
-    echo Killing uvicorn server... ^(PID: %%i^)
-    taskkill /PID %%i /F
-)
+REM 기존 uvicorn 종료
+taskkill /IM python.exe /F /FI "WINDOWTITLE eq *uvicorn*" 2>nul
 timeout /t 2 /nobreak >nul
 
-REM 새 uvicorn 시작
-powershell -Command "Start-Process uvicorn -ArgumentList 'app.main:app','--host','%HOST%','--port','%PORT%','--reload' -WindowStyle Hidden -RedirectStandardOutput 'logs\\app.log' -RedirectStandardError 'logs\\error.log'"
-echo FastAPI server started ^(%HOST%:%PORT%, LOGS: logs\app.log^)
+REM 백그라운드 실행 + 로그 파일로 리다이렉트
+start /B "" cmd /C "uvicorn app.main:app --host %HOST% --port %PORT% --reload > "%APP_LOG%" 2>&1"
+
+echo FastAPI 백그라운드 실행됨: http://%HOST%:%PORT%
+echo 로그: %APP_LOG%
+pause

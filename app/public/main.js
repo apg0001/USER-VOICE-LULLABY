@@ -134,3 +134,23 @@ document
 
     handleFormDataRequest("/train-files", formData, "train-upload-result");
   });
+
+document
+  .getElementById("inference-upload-form")
+  .addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+
+    const formData = new FormData();
+    formData.append("target_audio", form.target_audio.files[0]); // FastAPI: target_audio: UploadFile = File(...)
+    formData.append("model_path", form.model_path.value);
+
+    if (form.index_path.value.trim().length > 0) {
+      formData.append("index_path", form.index_path.value);
+    }
+    if (form.output_dir.value.trim().length > 0) {
+      formData.append("output_dir", form.output_dir.value);
+    }
+
+    handleFormDataRequest("/inference-files", formData, "inference-upload-result");
+  });

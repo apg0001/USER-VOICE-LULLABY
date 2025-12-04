@@ -1,0 +1,62 @@
+# Python
+__pycache__
+*.pyc
+.env
+.git
+.gitignore
+README.md
+*.log
+.DS_Store
+*.ipynb
+
+# jupyter notebook
+.ipynb_checkpoints/
+
+# applio
+applio/output
+applio/outputs
+applio/datasets
+applio/logs/*/
+
+!applio/logs/mute/
+!applio/logs/mute/**
+!applio/logs/mute_spin/
+!applio/logs/mute_spin/**
+!applio/logs/mute_spin-v2/
+!applio/logs/mute_spin-v2/**
+!applio/logs/reference/
+!applio/logs/reference/**
+!applio/logs/zips/
+!applio/logs/zips/**
+!applio/logs/test/
+!applio/logs/test/**
+
+applio/ffmpeg.exe
+applio/ffprobe.exe
+applio/run-install.bat
+applio/run-tensorboard.bat
+
+applio/assets/audios/
+applio/assets/datasets/
+
+# RVC models
+applio/rvc/models/embedders/*.pt
+applio/rvc/models/formant/*.pt
+applio/rvc/models/predictors/*.pt
+applio/rvc/models/pretrained/hifi-gan/*.pt
+
+# log
+logs/
+
+# spleeter
+pretrained_models/
+
+# ffmpeg
+ffmpeg.exe
+ffprobe.exe
+
+# test files
+test/
+
+# others
+*.zip
