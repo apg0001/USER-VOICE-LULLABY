@@ -19,7 +19,7 @@ from .settings import INFERENCE_DEFAULTS, TRAINING_DEFAULTS
 from .task_queue import AsyncJobQueue
 
 # 공통 경로 설정
-ALLOWED_ROOT = PROJECT_ROOT / "applio/output"
+ALLOWED_ROOT = PROJECT_ROOT / "applio/outputs"
 
 # 작업 큐 구성
 train_queue = AsyncJobQueue("train")
