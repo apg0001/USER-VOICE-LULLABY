@@ -358,6 +358,9 @@ async def download_file(path: str = Query(..., description="오디오 파일 이
     requested_path = (ALLOWED_ROOT / path).resolve()
     logger_fastapi.info(f"다운로드 요청: {requested_path}")
     if not requested_path.is_file() or not requested_path.is_relative_to(ALLOWED_ROOT):
+        logger_fastapi.error(
+            f"다운로드 File not found: {requested_path} ALLOWD_ROOT: {ALLOWED_ROOT}"
+        )
         raise HTTPException(status_code=404, detail="File not found")
 
     filename = os.path.basename(path)

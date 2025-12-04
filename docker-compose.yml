@@ -6,9 +6,10 @@ services:
     image: applio-fastapi:3.10 # 태그에 버전 명시
     ports:
       - "8000:8000"
-    # volumes:
-    #   - ./applio/logs:/app/applio/logs
-    #   - ./applio/output:/app/applio/output
+    volumes:
+      - ./app:/app/app
+      # - ./applio/logs:/app/applio/logs
+      # - ./applio/output:/app/applio/output
     runtime: nvidia
     shm_size: 2gb
     environment:
