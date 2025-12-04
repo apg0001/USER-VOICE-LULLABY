@@ -132,11 +132,15 @@ async def train_model(
     sample_rate: Optional[int] = None,
     total_epoch: Optional[int] = None,
     batch_size: Optional[int] = None,
+    embedder_model: Optional[str] = None,
+    overtraining_detector: Optional[bool] = None,
 ) -> dict:
     defaults = TRAINING_DEFAULTS
     sample_rate = sample_rate or defaults.sample_rate
     total_epoch = total_epoch or defaults.total_epoch
     batch_size = batch_size or defaults.batch_size
+    embedder_model = embedder_model or defaults.embedder_model
+    overtraining_detector = overtraining_detector or defaults.overtraining_detector
 
     dataset = _resolve_path(dataset_path, RVC_ROOT)
     if not dataset.exists():
@@ -170,7 +174,7 @@ async def train_model(
         defaults.cpu_cores,
         defaults.gpu,
         sample_rate,
-        defaults.embedder_model,
+        embedder_model,
         None,
         defaults.include_mutes,
     )
@@ -185,7 +189,7 @@ async def train_model(
         sample_rate,
         batch_size,
         defaults.gpu,
-        defaults.overtraining_detector,
+        overtraining_detector,
         defaults.overtraining_threshold,
         defaults.pretrained,
         defaults.cleanup,
@@ -239,6 +243,11 @@ async def run_inference(
     model_path: str,
     index_path: Optional[str] = None,
     output_dir: str = "outputs",
+    volume_envelope: Optional[float] = None,
+    protect: Optional[float] = None,
+    f0_autotune: Optional[bool] = None,
+    f0_autotune_strength: Optional[float] = None,
+    embedder_model: Optional[str] = None,
 ) -> dict:
     defaults = INFERENCE_DEFAULTS
     input_path = _resolve_path(input_audio_path, RVC_ROOT)
@@ -255,6 +264,12 @@ async def run_inference(
 
     resolved_output_dir = _resolve_path(output_dir, RVC_ROOT)
     output_folder = _ensure_directory(resolved_output_dir)
+
+    volume_envelope = volume_envelope or defaults.volume_envelope
+    protect = protect or defaults.protect
+    f0_autotune = f0_autotune or defaults.f0_autotune
+    f0_autotune_strength = defaults.f0_autotune_strength
+    embedder_model = defaults.embedder_model
 
     # 고유 ID 생성
     unique_id = uuid4().hex
@@ -283,22 +298,22 @@ async def run_inference(
             run_infer_script,
             defaults.pitch,
             defaults.index_rate,
-            defaults.volume_envelope,
-            defaults.protect,
+            volume_envelope,
+            protect,
             defaults.f0_method,
             str(vocals_path),
             str(temp_vocal_output),
             str(model_file),
             str(idx_path) if idx_path else "",
             defaults.split_audio,
-            defaults.f0_autotune,
-            defaults.f0_autotune_strength,
+            f0_autotune,
+            f0_autotune_strength,
             defaults.proposed_pitch,
             defaults.proposed_pitch_threshold,
             defaults.clean_audio,
             defaults.clean_strength,
             defaults.export_format,
-            defaults.embedder_model,
+            embedder_model,
             None,
             defaults.formant_shifting,
             defaults.formant_qfrency,

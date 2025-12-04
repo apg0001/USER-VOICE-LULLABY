@@ -233,9 +233,14 @@ async def start_training2(
         description="과적합 방지",
     ),
 ):
-    logger_fastapi.info(
-        f"파일 업로드 학습 요청 mn: {model_name}, sr: {sample_rate}, e: {total_epoch}, bs: {batch_size}, f: {len(files)}"
-    )
+    logger_fastapi.info(f"파일 업로드 학습 요청")
+    logger_fastapi.info(f"모델명: {model_name}")
+    logger_fastapi.info(f"Sample Rate: {sample_rate}")
+    logger_fastapi.info(f"Total Epochs: {total_epoch}")
+    logger_fastapi.info(f"배치 사이즈: {batch_size}")
+    logger_fastapi.info(f"입력 파일 수: {len(files)}")
+    logger_fastapi.info(f"Embedder Model: {embedder_model}")
+    logger_fastapi.info(f"과적합 방지: {overtraining_detector}")
     try:
         # 모델명 기준 폴더 생성 (datasets 하위)
         dataset_path = DATASET_ROOT / model_name
@@ -265,6 +270,8 @@ async def start_training2(
             sample_rate=sample_rate,
             total_epoch=total_epoch,
             batch_size=batch_size,
+            embedder_model=embedder_model,
+            overtraining_detector=overtraining_detector,
         )
         return {"status": "running", **result}
     except FileNotFoundError as exc:
@@ -331,6 +338,11 @@ async def start_inference_files(
             model_path=model_path,
             index_path=index_path,
             output_dir=output_dir,
+            volume_envelope=volume_envelope,
+            protect=protect,
+            f0_autotune=f0_autotune,
+            f0_autotune_strength=f0_autotune_strength,
+            embedder_model=embedder_model,
         )
         return {"status": "completed", **result}
     except FileNotFoundError as exc:
