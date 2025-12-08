@@ -45,7 +45,7 @@ class TrainingDefaults:
     custom_pretrained: bool = False
     g_pretrained_path: str = None
     d_pretrained_path: str = None
-    vocoder: str = "MRF HiFi-GAN"
+    vocoder: str = "HiFi-GAN"
     checkpointing: bool = False
 
 

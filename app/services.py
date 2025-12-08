@@ -132,6 +132,7 @@ async def train_model(
     total_epoch: Optional[int] = None,
     batch_size: Optional[int] = None,
     embedder_model: Optional[str] = None,
+    vocoder: vocoder[str] = None,
     overtraining_detector: Optional[bool] = None,
     custom_pretrained: bool = False,
     g_pretrained_path: str = None,
@@ -142,6 +143,7 @@ async def train_model(
     total_epoch = total_epoch or defaults.total_epoch
     batch_size = batch_size or defaults.batch_size
     embedder_model = embedder_model or defaults.embedder_model
+    vocoder = vocoder or defaults.vocoder
     overtraining_detector = overtraining_detector or defaults.overtraining_detector
     custom_pretrained = custom_pretrained or defaults.custom_pretrained
     g_pretrained_path = g_pretrained_path or defaults.g_pretrained_path
@@ -203,7 +205,7 @@ async def train_model(
         custom_pretrained,
         g_pretrained_path,
         d_pretrained_path,
-        defaults.vocoder,
+        vocoder,
         defaults.checkpointing,
     )
 

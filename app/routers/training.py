@@ -65,6 +65,7 @@ async def start_training_files(
     batch_size: int = Form(TRAINING_DEFAULTS.batch_size),
     files: List[UploadFile] = File(...),
     embedder_model: Optional[str] = Form(TRAINING_DEFAULTS.embedder_model),
+    vocoder: Optional[str] = Form(TRAINING_DEFAULTS.vocoder),
     overtraining_detector: Optional[bool] = Form(
         TRAINING_DEFAULTS.overtraining_detector
     ),
@@ -97,6 +98,7 @@ async def start_training_files(
             total_epoch=total_epoch,
             batch_size=batch_size,
             embedder_model=embedder_model,
+            vocoder=vocoder,
             overtraining_detector=overtraining_detector,
             custom_pretrained=custom_pretrained,
             g_pretrained_path=g_pretrained_path,

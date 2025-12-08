@@ -1,4 +1,5 @@
 """요청 모델 정의"""
+
 from __future__ import annotations
 
 from typing import Optional
@@ -7,6 +8,7 @@ from pydantic import BaseModel, Field
 
 class TrainRequest(BaseModel):
     """학습 요청 모델"""
+
     model_name: str = Field(..., description="로그 디렉토리에 저장될 모델 이름")
     dataset_path: str = Field(..., description="학습에 사용할 데이터셋 폴더 경로")
     sample_rate: Optional[int] = Field(
@@ -22,6 +24,7 @@ class TrainRequest(BaseModel):
 
 class InferenceRequest(BaseModel):
     """추론 요청 모델"""
+
     input_audio_path: str = Field(..., description="변환할 입력 오디오 경로")
     model_path: str = Field(..., description=".pth 모델 가중치 경로")
     index_path: Optional[str] = Field(
@@ -34,12 +37,14 @@ class InferenceRequest(BaseModel):
 
 class TrainFilesRequest(BaseModel):
     """파일 업로드 학습 요청 모델 (내부 사용)"""
+
     model_id: str
     dataset_path: str
     sample_rate: int
     total_epoch: int
     batch_size: int
     embedder_model: Optional[str] = None
+    vocoder: Optional[str] = None
     overtraining_detector: Optional[bool] = None
     custom_pretrained: bool = False
     g_pretrained_path: Optional[str] = None
@@ -48,6 +53,7 @@ class TrainFilesRequest(BaseModel):
 
 class InferenceFilesRequest(BaseModel):
     """파일 업로드 추론 요청 모델 (내부 사용)"""
+
     input_audio_path: str
     model_path: str
     index_path: Optional[str] = None
@@ -57,4 +63,3 @@ class InferenceFilesRequest(BaseModel):
     f0_autotune: Optional[bool] = None
     f0_autotune_strength: Optional[float] = None
     embedder_model: Optional[str] = None
-
