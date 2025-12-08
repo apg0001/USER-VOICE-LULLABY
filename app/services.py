@@ -200,9 +200,9 @@ async def train_model(
         defaults.cleanup,
         defaults.index_algorithm,
         defaults.cache_data_in_gpu,
-        defaults.custom_pretrained,
-        defaults.g_pretrained_path,
-        defaults.d_pretrained_path,
+        custom_pretrained,
+        g_pretrained_path,
+        d_pretrained_path,
         defaults.vocoder,
         defaults.checkpointing,
     )
