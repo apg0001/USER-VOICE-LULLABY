@@ -42,6 +42,9 @@ class TrainingDefaults:
     cleanup: bool = False
     cache_data_in_gpu: bool = False
     index_algorithm: str = "Auto"
+    custom_pretrained: bool = False
+    g_pretrained_path: str = None
+    d_pretrained_path: str = None
     vocoder: str = "MRF HiFi-GAN"
     checkpointing: bool = False
 

@@ -16,7 +16,6 @@ from rvc.lib.tools.prerequisites_download import prequisites_download_pipeline
 from rvc.train.process.model_blender import model_blender
 from rvc.train.process.model_information import model_information
 from rvc.lib.tools.analyzer import analyze_audio
-from rvc.lib.tools.launch_tensorboard import launch_tensorboard_pipeline
 from rvc.lib.tools.model_download import model_download_pipeline
 
 python = sys.executable
@@ -587,9 +586,6 @@ def run_model_blender_script(
     return message, model_blended
 
 
-# Tensorboard
-def run_tensorboard_script():
-    launch_tensorboard_pipeline()
 
 
 # Download
@@ -2126,10 +2122,6 @@ def parse_arguments():
     )
 
     # Parser for 'tensorboard' mode
-    subparsers.add_parser(
-        "tensorboard", help="Launch TensorBoard for monitoring training progress."
-    )
-
     # Parser for 'download' mode
     download_parser = subparsers.add_parser(
         "download", help="Download a model from a provided link."
@@ -2396,8 +2388,6 @@ def main():
                 pth_path_2=args.pth_path_2,
                 ratio=args.ratio,
             )
-        elif args.mode == "tensorboard":
-            run_tensorboard_script()
         elif args.mode == "download":
             run_download_script(
                 model_link=args.model_link,

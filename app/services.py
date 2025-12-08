@@ -13,9 +13,9 @@ import numpy as np
 import soundfile as sf
 from spleeter.separator import Separator
 
-from .logging_config import PROJECT_ROOT, get_logger
+from app.constants import RVC_LOGS_DIR, RVC_ROOT, DEFAULT_OUTPUT_DIR
+from app.logging_config import PROJECT_ROOT, get_logger
 
-RVC_ROOT = PROJECT_ROOT / "applio"
 INNER_RVC = RVC_ROOT / "rvc"
 
 # RVC 루트가 존재하지 않으면 오류 발생
@@ -45,12 +45,11 @@ finally:
     os.chdir(_ORIGINAL_CWD)  # 작업 디렉토리 원복
 
 # 설정값 임포트
-from .settings import INFERENCE_DEFAULTS, TRAINING_DEFAULTS
+from app.settings import INFERENCE_DEFAULTS, TRAINING_DEFAULTS
 
 logger = get_logger(__name__)
 
-RVC_LOGS_DIR = RVC_ROOT / "logs"  # 모델 저장 폴더
-DEFAULT_OUTPUT_DIR = RVC_ROOT / "outputs"  # 출력 파일 기본 경로
+__all__ = ["run_inference", "train_model"]
 
 
 # 디렉토리가 없으면 생성해주는 헬퍼함수
@@ -134,6 +133,9 @@ async def train_model(
     batch_size: Optional[int] = None,
     embedder_model: Optional[str] = None,
     overtraining_detector: Optional[bool] = None,
+    custom_pretrained: bool = False,
+    g_pretrained_path: str = None,
+    d_pretrained_path: str = None,
 ) -> dict:
     defaults = TRAINING_DEFAULTS
     sample_rate = sample_rate or defaults.sample_rate
@@ -141,6 +143,9 @@ async def train_model(
     batch_size = batch_size or defaults.batch_size
     embedder_model = embedder_model or defaults.embedder_model
     overtraining_detector = overtraining_detector or defaults.overtraining_detector
+    custom_pretrained = custom_pretrained or defaults.custom_pretrained
+    g_pretrained_path = g_pretrained_path or defaults.g_pretrained_path
+    d_pretrained_path = d_pretrained_path or defaults.d_pretrained_path
 
     dataset = _resolve_path(dataset_path, RVC_ROOT)
     if not dataset.exists():
@@ -195,9 +200,9 @@ async def train_model(
         defaults.cleanup,
         defaults.index_algorithm,
         defaults.cache_data_in_gpu,
-        False,
-        None,
-        None,
+        defaults.custom_pretrained,
+        defaults.g_pretrained_path,
+        defaults.d_pretrained_path,
         defaults.vocoder,
         defaults.checkpointing,
     )
@@ -379,6 +384,21 @@ async def run_inference(
             except Exception as e:
                 logger.warning(f"임시 추론 폴더 삭제 실패: {separation_folder} - {e}")
 
+        # 입력 오디오 파일이 임시 파일인 경우 삭제 (target_audio 디렉토리의 temp_inference_* 파일)
+        input_path_obj = Path(input_audio_path)
+        if (
+            input_path_obj.exists()
+            and "target_audio" in str(input_path_obj)
+            and input_path_obj.name.startswith("temp_inference_")
+        ):
+            try:
+                await _remove_file(input_audio_path)
+                logger.info(f"입력 임시 오디오 파일 삭제 완료: {input_audio_path}")
+            except Exception as e:
+                logger.warning(
+                    f"입력 임시 오디오 파일 삭제 실패: {input_audio_path} - {e}"
+                )
+
 
 async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) -> dict:
     """오디오를 보컬/인스트루멘탈로 분리 (문자열 경로 사용)"""
@@ -410,7 +430,8 @@ async def merge_vocal_instrumental(
         instrumental, sr_i = librosa.load(instrumental_path, sr=None, mono=True)
 
         if sr_v != sr_i:
-            raise ValueError("샘플레이트 불일치")
+            instrumental = librosa.resample(instrumental, orig_sr=sr_i, target_sr=sr_v)
+            sr_i = sr_v
 
         # 길이 맞추기
         max_len = max(len(vocals), len(instrumental))
