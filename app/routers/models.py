@@ -43,6 +43,65 @@ async def delete_model(
         raise HTTPException(status_code=500, detail=f"모델 삭제 중 오류 발생: {str(exc)}")
 
 
+@router.get("/outputs", response_model=list[OutputInfo])
+async def list_outputs(
+    output_service: OutputService = Depends(get_output_service),
+) -> list[OutputInfo]:
+    """추론 결과 리스트를 조회합니다."""
+    return output_service.list_outputs()
+
+
+@router.delete("/outputs/{output_id}")
+async def delete_output(
+    output_id: str,
+    output_service: OutputService = Depends(get_output_service),
+):
+    """출력 파일 ID로 추론 결과를 삭제합니다."""
+    try:
+        output_service.delete_output(output_id)
+        return {"status": "deleted", "output_id": output_id}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        logger.exception(f"출력 파일 삭제 실패: {output_id}")
+        raise HTTPException(status_code=500, detail=f"출력 파일 삭제 중 오류 발생: {str(exc)}")
+
+
+@router.get("/outputs/{output_id}/download")
+async def download_output_file(
+    output_id: str,
+    output_service: OutputService = Depends(get_output_service),
+):
+    """출력 파일 다운로드"""
+    try:
+        from ..repositories.output_repository import OutputRepository
+        repo = OutputRepository()
+        file_path = repo.get_output_path(output_id)
+        filename = file_path.name
+        
+        # 파일 확장자에 따른 미디어 타입 결정
+        media_type_map = {
+            ".wav": "audio/wav",
+            ".mp3": "audio/mpeg",
+            ".flac": "audio/flac",
+            ".m4a": "audio/mp4",
+        }
+        media_type = media_type_map.get(file_path.suffix.lower(), "audio/wav")
+        
+        return FileResponse(
+            str(file_path),
+            filename=filename,
+            media_type=media_type,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File not found")
+    except Exception as exc:
+        logger.exception(f"출력 파일 다운로드 실패: {output_id}")
+        raise HTTPException(status_code=500, detail=f"파일 다운로드 중 오류 발생: {str(exc)}")
+
+
 @router.get("/download")
 async def download_file(
     path: str = Query(..., description="오디오 파일 이름"),

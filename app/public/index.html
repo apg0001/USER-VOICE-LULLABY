@@ -14,15 +14,34 @@
       body {
         margin: 0;
         padding: 2rem;
+        max-width: 1400px;
+        margin: 0 auto;
       }
       h1,
-      h2 {
+      h2,
+      h3 {
         margin-top: 0;
+      }
+      .header {
+        margin-bottom: 2rem;
+        padding-bottom: 1rem;
+        border-bottom: 2px solid #1f2532;
+      }
+      .quick-actions {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+        margin-bottom: 2rem;
+      }
+      .quick-actions button {
+        flex: 1;
+        min-width: 150px;
       }
       .grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
         gap: 1.5rem;
+        margin-bottom: 2rem;
       }
       form {
         background: #141820;
@@ -38,12 +57,17 @@
         gap: 0.4rem;
         margin-bottom: 1rem;
       }
-      input {
+      input,
+      select {
         padding: 0.6rem 0.8rem;
         border-radius: 8px;
         border: 1px solid #2c3547;
         background: #0b0f16;
         color: inherit;
+        font-size: 0.9rem;
+      }
+      select {
+        cursor: pointer;
       }
       button {
         border: none;
@@ -54,6 +78,7 @@
         background: linear-gradient(120deg, #6366f1, #14b8a6);
         color: white;
         transition: opacity 0.2s;
+        font-weight: 500;
       }
       button:hover {
         opacity: 0.9;
@@ -76,12 +101,6 @@
       }
       .health {
         margin-bottom: 2rem;
-        display: flex;
-        gap: 1rem;
-        align-items: center;
-      }
-      .health button {
-        flex-shrink: 0;
       }
       .job-status {
         background: #141820;
@@ -127,24 +146,95 @@
         width: auto;
         margin: 0;
       }
+      /* 모델/출력 리스트 테이블 스타일 */
+      .data-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 1rem;
+        background: #0f131b;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .data-table th,
+      .data-table td {
+        padding: 0.75rem;
+        text-align: left;
+        border-bottom: 1px solid #1f2532;
+      }
+      .data-table th {
+        background: #141820;
+        font-weight: 600;
+        color: #a0aec0;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      .data-table tr:hover {
+        background: #1a1f2e;
+      }
+      .data-table tr:last-child td {
+        border-bottom: none;
+      }
+      .file-link {
+        color: #60a5fa;
+        cursor: pointer;
+        text-decoration: underline;
+        transition: color 0.2s;
+      }
+      .file-link:hover {
+        color: #93c5fd;
+      }
+      .file-actions {
+        display: flex;
+        gap: 0.5rem;
+      }
+      .file-actions button {
+        padding: 0.4rem 0.8rem;
+        font-size: 0.85rem;
+        background: #2c3547;
+        border: 1px solid #3b4555;
+      }
+      .file-actions button:hover {
+        background: #3b4555;
+      }
+      .model-select-group {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+      }
+      .empty-state {
+        text-align: center;
+        padding: 2rem;
+        color: #6b7280;
+        font-style: italic;
+      }
+      .audio-player {
+        margin-top: 0.5rem;
+        width: 100%;
+      }
+      .hidden {
+        display: none;
+      }
     </style>
   </head>
   <body>
-    <header>
+    <header class="header">
       <h1>Applio FastAPI Console</h1>
       <p>REST API를 바로 호출할 수 있는 최소한의 정적 페이지입니다.</p>
     </header>
 
     <section class="health">
-      <button id="health-btn">/ 헬스체크</button>
-      <button id="models-btn">모델 리스트 조회</button>
-      <button id="outputs-btn">추론 결과 조회</button>
+      <div class="quick-actions">
+        <button id="health-btn">헬스체크</button>
+        <button id="models-btn">모델 리스트</button>
+        <button id="outputs-btn">추론 결과</button>
+      </div>
       <div id="health-result" class="result">클릭하여 상태 확인</div>
     </section>
 
     <div class="grid">
       <section>
-        <h2>Train API (파일 업로드)</h2>
+        <h2>학습 (Train)</h2>
         <form id="train-upload-form" enctype="multipart/form-data">
           <label>
             샘플레이트 (선택)
@@ -200,7 +290,7 @@
       </section>
 
       <section>
-        <h2>Inference API (파일 업로드)</h2>
+        <h2>추론 (Inference)</h2>
         <form id="inference-upload-form" enctype="multipart/form-data">
           <label>
             입력 오디오 파일
@@ -211,23 +301,40 @@
               required
             />
           </label>
-          <label>
-            모델 (.pth) 경로
-            <input
-              name="model_path"
-              placeholder="logs/my_model/G_20000.pth"
-              required
-              autocomplete="off"
-            />
-          </label>
-          <label>
-            인덱스 경로 (.index, 선택)
-            <input
-              name="index_path"
-              placeholder="logs/my_model/added_IVF.index"
-              autocomplete="off"
-            />
-          </label>
+          <div class="model-select-group">
+            <label>
+              모델 선택
+              <select name="model_select" id="model-select" required>
+                <option value="">모델을 선택하세요</option>
+              </select>
+            </label>
+            <label>
+              모델 파일 (.pth)
+              <input
+                name="model_path"
+                id="model-path-input"
+                placeholder="자동 선택 또는 직접 입력"
+                autocomplete="off"
+              />
+            </label>
+          </div>
+          <div class="model-select-group">
+            <label>
+              인덱스 파일 선택
+              <select name="index_select" id="index-select">
+                <option value="">인덱스 파일 없음</option>
+              </select>
+            </label>
+            <label>
+              인덱스 경로 (.index, 선택)
+              <input
+                name="index_path"
+                id="index-path-input"
+                placeholder="자동 선택 또는 직접 입력"
+                autocomplete="off"
+              />
+            </label>
+          </div>
           <label>
             출력 디렉토리 (선택)
             <input name="output_dir" placeholder="outputs" />
@@ -302,8 +409,11 @@
 
     <section class="job-status">
       <h3>모델 관리</h3>
-      <div id="models-list" class="result">
-        모델 리스트 조회 버튼을 클릭하세요
+      <button id="models-refresh-btn" style="margin-bottom: 1rem">새로고침</button>
+      <div id="models-list-container">
+        <div id="models-list" class="result">
+          모델 리스트 조회 버튼을 클릭하세요
+        </div>
       </div>
       <div style="margin-top: 1rem">
         <label>
@@ -322,8 +432,11 @@
 
     <section class="job-status">
       <h3>추론 결과 관리</h3>
-      <div id="outputs-list" class="result">
-        추론 결과 조회 버튼을 클릭하세요
+      <button id="outputs-refresh-btn" style="margin-bottom: 1rem">새로고침</button>
+      <div id="outputs-list-container">
+        <div id="outputs-list" class="result">
+          추론 결과 조회 버튼을 클릭하세요
+        </div>
       </div>
       <div style="margin-top: 1rem">
         <label>
