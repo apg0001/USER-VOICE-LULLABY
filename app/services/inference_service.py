@@ -36,6 +36,7 @@ class InferenceService:
         f0_autotune: Optional[bool] = None,
         f0_autotune_strength: Optional[float] = None,
         embedder_model: Optional[str] = None,
+        index_rate: Optional[float] = None,
     ) -> dict:
         """추론 실행"""
         return await _run_inference(
@@ -48,6 +49,7 @@ class InferenceService:
             f0_autotune=f0_autotune,
             f0_autotune_strength=f0_autotune_strength,
             embedder_model=embedder_model,
+            index_rate=index_rate,
         )
     
     async def infer_from_request(self, request: InferenceFilesRequest) -> dict:
@@ -62,5 +64,6 @@ class InferenceService:
             f0_autotune=request.f0_autotune,
             f0_autotune_strength=request.f0_autotune_strength,
             embedder_model=request.embedder_model,
+            index_rate=request.index_rate,
         )
 

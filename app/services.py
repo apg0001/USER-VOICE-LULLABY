@@ -367,6 +367,7 @@ async def run_inference(
     f0_autotune: Optional[bool] = None,
     f0_autotune_strength: Optional[float] = None,
     embedder_model: Optional[str] = None,
+    index_rate: Optional[float] = None,
 ) -> dict:
     defaults = INFERENCE_DEFAULTS
     input_path = _resolve_path(input_audio_path, RVC_ROOT)
@@ -416,7 +417,7 @@ async def run_inference(
         vocal_message, vocal_exported = await _run_blocking(
             run_infer_script,
             defaults.pitch,
-            defaults.index_rate,
+            index_rate,
             volume_envelope,
             protect,
             defaults.f0_method,

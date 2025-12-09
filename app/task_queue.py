@@ -149,41 +149,73 @@ class AsyncJobQueue:
             if job is None:
                 continue
             
-            try:
-                self._active = True
-                job.status = JobStatus.RUNNING
-                job.started_at = datetime.now()
-                
-                worker_logger.info(
-                    f"작업 시작 | queue={self.name} | job_id={job_id} | "
-                    f"function={coroutine_func.__name__ if hasattr(coroutine_func, '__name__') else 'unknown'}"
-                )
-                
-                result = await coroutine_func(*args, **kwargs)
-                
-                job.status = JobStatus.COMPLETED
-                job.completed_at = datetime.now()
-                job.result = result
-                
-                worker_logger.info(
-                    f"작업 완료 | queue={self.name} | job_id={job_id} | "
-                    f"duration={(job.completed_at - job.started_at).total_seconds():.2f}초"
-                )
-                
-                if not future.done():
-                    future.set_result(result)
-            except Exception as exc:  # pragma: no cover - 안전망
-                job.status = JobStatus.FAILED
-                job.completed_at = datetime.now()
-                job.error = str(exc)
-                
-                worker_logger.error(
-                    f"작업 실패 | queue={self.name} | job_id={job_id} | error={str(exc)}",
-                    exc_info=True
-                )
-                
-                if not future.done():
-                    future.set_exception(exc)
-            finally:
-                self._active = False
-                self._queue.task_done()
+            # 재시도 로직
+            max_retries = 3
+            retry_count = 0
+            last_exception = None
+            
+            while retry_count <= max_retries:
+                try:
+                    self._active = True
+                    if retry_count == 0:
+                        job.status = JobStatus.RUNNING
+                        job.started_at = datetime.now()
+                        worker_logger.info(
+                            f"작업 시작 | queue={self.name} | job_id={job_id} | "
+                            f"function={coroutine_func.__name__ if hasattr(coroutine_func, '__name__') else 'unknown'}"
+                        )
+                    else:
+                        worker_logger.warning(
+                            f"작업 재시도 | queue={self.name} | job_id={job_id} | "
+                            f"retry_count={retry_count}/{max_retries}"
+                        )
+                    
+                    result = await coroutine_func(*args, **kwargs)
+                    
+                    job.status = JobStatus.COMPLETED
+                    job.completed_at = datetime.now()
+                    job.result = result
+                    
+                    worker_logger.info(
+                        f"작업 완료 | queue={self.name} | job_id={job_id} | "
+                        f"duration={(job.completed_at - job.started_at).total_seconds():.2f}초 | "
+                        f"retry_count={retry_count}"
+                    )
+                    
+                    if not future.done():
+                        future.set_result(result)
+                    
+                    # 성공 시 루프 종료
+                    break
+                    
+                except Exception as exc:  # pragma: no cover - 안전망
+                    last_exception = exc
+                    retry_count += 1
+                    
+                    if retry_count <= max_retries:
+                        # 재시도 전 대기 (지수 백오프)
+                        wait_time = min(2 ** retry_count, 10)  # 최대 10초
+                        worker_logger.warning(
+                            f"작업 실패 (재시도 예정) | queue={self.name} | job_id={job_id} | "
+                            f"retry_count={retry_count}/{max_retries} | wait_time={wait_time}초 | error={str(exc)}"
+                        )
+                        await asyncio.sleep(wait_time)
+                    else:
+                        # 최대 재시도 횟수 초과
+                        job.status = JobStatus.FAILED
+                        job.completed_at = datetime.now()
+                        job.error = str(exc)
+                        
+                        worker_logger.error(
+                            f"작업 최종 실패 (재시도 한도 초과) | queue={self.name} | job_id={job_id} | "
+                            f"retry_count={retry_count} | error={str(exc)}",
+                            exc_info=True
+                        )
+                        
+                        if not future.done():
+                            future.set_exception(exc)
+                finally:
+                    if retry_count > max_retries or job.status == JobStatus.COMPLETED:
+                        self._active = False
+            
+            self._queue.task_done()

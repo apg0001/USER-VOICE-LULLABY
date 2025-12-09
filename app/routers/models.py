@@ -75,11 +75,18 @@ async def download_output_file(
     output_service: OutputService = Depends(get_output_service),
 ):
     """출력 파일 다운로드"""
+    logger.info(f"다운로드 요청 수신 | output_id={output_id}")
     try:
         from ..repositories.output_repository import OutputRepository
         repo = OutputRepository()
         file_path = repo.get_output_path(output_id)
         filename = file_path.name
+        
+        if not file_path.exists():
+            logger.error(f"파일이 존재하지 않음 | output_id={output_id} | path={file_path}")
+            raise FileNotFoundError(f"File not found: {file_path}")
+        
+        logger.info(f"파일 다운로드 시작 | output_id={output_id} | filename={filename} | path={file_path}")
         
         # 파일 확장자에 따른 미디어 타입 결정
         media_type_map = {
@@ -90,15 +97,18 @@ async def download_output_file(
         }
         media_type = media_type_map.get(file_path.suffix.lower(), "audio/wav")
         
-        return FileResponse(
+        response = FileResponse(
             str(file_path),
             filename=filename,
             media_type=media_type,
         )
-    except FileNotFoundError:
+        logger.info(f"파일 다운로드 응답 생성 완료 | output_id={output_id} | filename={filename}")
+        return response
+    except FileNotFoundError as e:
+        logger.error(f"파일을 찾을 수 없음 | output_id={output_id} | error={str(e)}")
         raise HTTPException(status_code=404, detail="File not found")
     except Exception as exc:
-        logger.exception(f"출력 파일 다운로드 실패: {output_id}")
+        logger.exception(f"출력 파일 다운로드 실패 | output_id={output_id} | error={str(exc)}")
         raise HTTPException(status_code=500, detail=f"파일 다운로드 중 오류 발생: {str(exc)}")
 
 
@@ -108,16 +118,31 @@ async def download_file(
     file_repo: FileRepository = Depends(get_file_repository),
 ):
     """파일 다운로드"""
+    logger.info(f"다운로드 요청 수신 | path={path}")
     try:
         file_path = file_repo.get_file_path(path)
         filename = file_path.name
-        return FileResponse(
+        
+        if not file_path.exists():
+            logger.error(f"파일이 존재하지 않음 | path={path} | resolved_path={file_path}")
+            raise FileNotFoundError(f"File not found: {file_path}")
+        
+        logger.info(f"파일 다운로드 시작 | path={path} | filename={filename} | resolved_path={file_path}")
+        
+        response = FileResponse(
             str(file_path),
             filename=filename,
             media_type="audio/wav",
         )
-    except FileNotFoundError:
+        logger.info(f"파일 다운로드 응답 생성 완료 | path={path} | filename={filename}")
+        return response
+    except FileNotFoundError as e:
+        logger.error(f"파일을 찾을 수 없음 | path={path} | error={str(e)}")
         raise HTTPException(status_code=404, detail="File not found")
     except ValueError as exc:
+        logger.error(f"잘못된 경로 | path={path} | error={str(exc)}")
         raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.exception(f"파일 다운로드 실패 | path={path} | error={str(exc)}")
+        raise HTTPException(status_code=500, detail=f"파일 다운로드 중 오류 발생: {str(exc)}")
 

@@ -74,6 +74,7 @@ async def start_inference_files(
     f0_autotune: Optional[bool] = Form(None),
     f0_autotune_strength: Optional[float] = Form(None),
     embedder_model: Optional[str] = Form(None),
+    index_rate: Optional[float] = Form(None),
     inference_service: InferenceService = Depends(get_inference_service),
     inference_queue: AsyncJobQueue = Depends(get_inference_queue),
     file_repo: FileRepository = Depends(get_file_repository),
@@ -87,6 +88,7 @@ async def start_inference_files(
     f0_autotune = f0_autotune if f0_autotune is not None else INFERENCE_DEFAULTS.f0_autotune
     f0_autotune_strength = f0_autotune_strength if f0_autotune_strength is not None else INFERENCE_DEFAULTS.f0_autotune_strength
     embedder_model = embedder_model if embedder_model is not None else INFERENCE_DEFAULTS.embedder_model
+    index_rate = index_rate if index_rate is not None else INFERENCE_DEFAULTS.index_rate
 
     try:
         # 파일 저장
@@ -106,6 +108,7 @@ async def start_inference_files(
             f0_autotune=f0_autotune,
             f0_autotune_strength=f0_autotune_strength,
             embedder_model=embedder_model,
+            index_rate=index_rate,
         )
 
         job_id = inference_queue.enqueue_async(
@@ -117,7 +120,7 @@ async def start_inference_files(
             f"추론 작업 등록 완료 | job_id={job_id} | model_path={model_path} | "
             f"index_path={index_path} | output_dir={output_dir} | "
             f"volume_envelope={volume_envelope} | protect={protect} | "
-            f"f0_autotune={f0_autotune} | embedder_model={embedder_model}"
+            f"f0_autotune={f0_autotune} | embedder_model={embedder_model} | index_rate={index_rate}"
         )
 
         return {"status": "queued", "job_id": job_id}

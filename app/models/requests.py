@@ -63,3 +63,4 @@ class InferenceFilesRequest(BaseModel):
     f0_autotune: Optional[bool] = None
     f0_autotune_strength: Optional[float] = None
     embedder_model: Optional[str] = None
+    index_rate: Optional[float] = None
