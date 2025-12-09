@@ -135,7 +135,6 @@
           </label>
           <button type="submit">파일로 학습 시작</button>
         </form>
-        <div id="train-upload-result" class="result"></div>
       </section>
 
       <section>
@@ -242,7 +241,6 @@
           </label>
           <button type="submit">파일로 추론 실행</button>
         </form>
-        <div id="inference-upload-result" class="result"></div>
       </section>
     </div>
 
@@ -265,9 +263,7 @@
         </div>
       </div>
       <div id="jobs-list-container">
-        <div id="job-status-result" class="result">
-          큐를 선택하고 새로고침 버튼을 클릭하세요
-        </div>
+        <div class="empty-state">큐를 선택하고 새로고침 버튼을 클릭하세요</div>
       </div>
     </section>
 
@@ -275,22 +271,7 @@
       <h3>모델 관리</h3>
       <button id="models-refresh-btn" style="margin-bottom: 1rem">새로고침</button>
       <div id="models-list-container">
-        <div id="models-list" class="result">
-          모델 리스트 조회 버튼을 클릭하세요
-        </div>
-      </div>
-      <div style="margin-top: 1rem">
-        <label>
-          삭제할 모델 ID
-          <input
-            id="delete-model-id"
-            placeholder="모델 ID를 입력하세요"
-            autocomplete="off"
-          />
-        </label>
-        <button id="delete-model-btn" style="margin-top: 0.5rem">
-          모델 삭제
-        </button>
+        <div class="empty-state">모델 리스트 조회 버튼을 클릭하세요</div>
       </div>
     </section>
 
@@ -298,22 +279,7 @@
       <h3>추론 결과 관리</h3>
       <button id="outputs-refresh-btn" style="margin-bottom: 1rem">새로고침</button>
       <div id="outputs-list-container">
-        <div id="outputs-list" class="result">
-          추론 결과 조회 버튼을 클릭하세요
-        </div>
-      </div>
-      <div style="margin-top: 1rem">
-        <label>
-          삭제할 출력 파일 ID (파일명)
-          <input
-            id="delete-output-id"
-            placeholder="출력 파일 ID를 입력하세요"
-            autocomplete="off"
-          />
-        </label>
-        <button id="delete-output-btn" style="margin-top: 0.5rem">
-          출력 파일 삭제
-        </button>
+        <div class="empty-state">추론 결과 조회 버튼을 클릭하세요</div>
       </div>
     </section>
 

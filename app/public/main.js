@@ -168,7 +168,7 @@ const renderModelsTable = (models) => {
   const container = document.getElementById("models-list-container");
   
   if (!models || models.length === 0) {
-    container.innerHTML = '<div class="result empty-state">모델이 없습니다</div><div id="models-list" class="result"></div>';
+    container.innerHTML = '<div class="empty-state">모델이 없습니다</div>';
     return;
   }
   
@@ -230,7 +230,6 @@ const renderModelsTable = (models) => {
   html += `
       </tbody>
     </table>
-    <div id="models-list" class="result" style="margin-top: 1rem;"></div>
   `;
   
   container.innerHTML = html;
@@ -241,7 +240,7 @@ const renderOutputsTable = (outputs) => {
   const container = document.getElementById("outputs-list-container");
   
   if (!outputs || outputs.length === 0) {
-    container.innerHTML = '<div class="result empty-state">추론 결과가 없습니다</div><div id="outputs-list" class="result"></div>';
+    container.innerHTML = '<div class="empty-state">추론 결과가 없습니다</div>';
     return;
   }
   
@@ -290,7 +289,6 @@ const renderOutputsTable = (outputs) => {
     <div id="audio-player-container" class="hidden" style="margin-top: 1rem;">
       <audio id="audio-player" class="audio-player" controls></audio>
     </div>
-    <div id="outputs-list" class="result" style="margin-top: 1rem;"></div>
   `;
   
   container.innerHTML = html;
@@ -338,28 +336,26 @@ window.deleteModel = async (modelId, modelName) => {
     return;
   }
   
-  const target = "models-list";
-  prettyPrint(target, { status: "삭제 중..." });
-  
   try {
     const response = await fetch(`/models/${modelId}`, {
       method: "DELETE",
     });
-    const data = await response.json();
     
     if (!response.ok) {
-      throw data;
+      const data = await response.json();
+      throw new Error(data.detail || "모델 삭제 실패");
     }
     
-    prettyPrint(target, data);
+    alert("모델이 삭제되었습니다.");
     
     // 삭제 후 리스트 새로고침
     setTimeout(() => {
       refreshModels();
+      // 사전 학습 모델 드롭다운도 업데이트
+      updatePretrainedModelDropdowns();
     }, 500);
   } catch (error) {
-    prettyPrint(target, { error: error.detail || error.message || error });
-    alert(`모델 삭제 실패: ${error.detail || error.message || error}`);
+    alert(`모델 삭제 실패: ${error.message || error}`);
   }
 };
 
@@ -369,28 +365,24 @@ window.deleteOutput = async (outputId, fileName) => {
     return;
   }
   
-  const target = "outputs-list";
-  prettyPrint(target, { status: "삭제 중..." });
-  
   try {
     const response = await fetch(`/outputs/${outputId}`, {
       method: "DELETE",
     });
-    const data = await response.json();
     
     if (!response.ok) {
-      throw data;
+      const data = await response.json();
+      throw new Error(data.detail || "출력 파일 삭제 실패");
     }
     
-    prettyPrint(target, data);
+    alert("출력 파일이 삭제되었습니다.");
     
     // 삭제 후 리스트 새로고침
     setTimeout(() => {
       refreshOutputs();
     }, 500);
   } catch (error) {
-    prettyPrint(target, { error: error.detail || error.message || error });
-    alert(`파일 삭제 실패: ${error.detail || error.message || error}`);
+    alert(`출력 파일 삭제 실패: ${error.message || error}`);
   }
 };
 
@@ -409,14 +401,11 @@ document.getElementById("health-btn").addEventListener("click", async () => {
 
 // 모델 리스트 조회
 const refreshModels = async () => {
-  const target = "models-list";
-  prettyPrint(target, { status: "요청 중..." });
   try {
     const models = await loadModels();
     renderModelsTable(models);
-    prettyPrint(target, models);
   } catch (error) {
-    prettyPrint(target, { error: error.message || error });
+    alert(`모델 리스트 조회 실패: ${error.message || error}`);
   }
 };
 
@@ -428,84 +417,19 @@ loadModels();
 
 // 추론 결과 리스트 조회
 const refreshOutputs = async () => {
-  const target = "outputs-list";
-  prettyPrint(target, { status: "요청 중..." });
   try {
     const response = await fetch("/outputs");
-    const data = await response.json();
-    renderOutputsTable(data);
-    prettyPrint(target, data);
+    if (!response.ok) throw new Error("추론 결과 조회 실패");
+    const outputs = await response.json();
+    renderOutputsTable(outputs);
   } catch (error) {
-    prettyPrint(target, { error: error.message || error });
+    alert(`추론 결과 조회 실패: ${error.message || error}`);
   }
 };
 
 document.getElementById("outputs-btn").addEventListener("click", refreshOutputs);
 document.getElementById("outputs-refresh-btn").addEventListener("click", refreshOutputs);
 
-// 모델 삭제
-document.getElementById("delete-model-btn").addEventListener("click", async () => {
-  const modelId = document.getElementById("delete-model-id").value.trim();
-  const target = "models-list";
-  
-  if (!modelId) {
-    prettyPrint(target, { error: "모델 ID를 입력해주세요." });
-    return;
-  }
-  
-  prettyPrint(target, { status: "삭제 중..." });
-  try {
-    const response = await fetch(`/models/${modelId}`, {
-      method: "DELETE",
-    });
-    const data = await response.json();
-    
-    if (!response.ok) {
-      throw data;
-    }
-    
-    prettyPrint(target, data);
-    
-    // 삭제 후 리스트 새로고침
-    setTimeout(() => {
-      refreshModels();
-    }, 500);
-  } catch (error) {
-    prettyPrint(target, { error: error.detail || error.message || error });
-  }
-});
-
-// 출력 파일 삭제
-document.getElementById("delete-output-btn").addEventListener("click", async () => {
-  const outputId = document.getElementById("delete-output-id").value.trim();
-  const target = "outputs-list";
-  
-  if (!outputId) {
-    prettyPrint(target, { error: "출력 파일 ID를 입력해주세요." });
-    return;
-  }
-  
-  prettyPrint(target, { status: "삭제 중..." });
-  try {
-    const response = await fetch(`/outputs/${outputId}`, {
-      method: "DELETE",
-    });
-    const data = await response.json();
-    
-    if (!response.ok) {
-      throw data;
-    }
-    
-    prettyPrint(target, data);
-    
-    // 삭제 후 리스트 새로고침
-    setTimeout(() => {
-      refreshOutputs();
-    }, 500);
-  } catch (error) {
-    prettyPrint(target, { error: error.detail || error.message || error });
-  }
-});
 
 // 학습 파일 업로드
 document
@@ -513,9 +437,6 @@ document
   .addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
-    const target = "train-upload-result";
-
-    prettyPrint(target, { status: "요청 중..." });
 
     try {
       const formData = new FormData();
@@ -565,13 +486,13 @@ document
         body: formData,
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw data;
+        const data = await response.json();
+        throw new Error(data.detail || "학습 요청 실패");
       }
 
-      prettyPrint(target, data);
+      const data = await response.json();
+      alert(`학습 작업이 등록되었습니다. Job ID: ${data.job_id}`);
 
       // Job ID가 있으면 자동으로 작업 리스트 새로고침
       if (data.job_id) {
@@ -581,7 +502,7 @@ document
         }, 500);
       }
     } catch (error) {
-      prettyPrint(target, { error: error.detail || error.message || error });
+      alert(`학습 요청 실패: ${error.message || error}`);
     }
   });
 
@@ -591,9 +512,6 @@ document
   .addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
-    const target = "inference-upload-result";
-
-    prettyPrint(target, { status: "요청 중..." });
 
     try {
       const formData = new FormData();
@@ -637,13 +555,13 @@ document
         body: formData,
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw data;
+        const data = await response.json();
+        throw new Error(data.detail || "추론 요청 실패");
       }
 
-      prettyPrint(target, data);
+      const data = await response.json();
+      alert(`추론 작업이 등록되었습니다. Job ID: ${data.job_id}`);
 
       // Job ID가 있으면 자동으로 작업 리스트 새로고침
       if (data.job_id) {
@@ -658,7 +576,7 @@ document
         refreshOutputs();
       }, 2000);
     } catch (error) {
-      prettyPrint(target, { error: error.detail || error.message || error });
+      alert(`추론 요청 실패: ${error.message || error}`);
     }
   });
 
@@ -667,7 +585,7 @@ const renderJobsTable = (jobs) => {
   const container = document.getElementById("jobs-list-container");
   
   if (!jobs || jobs.length === 0) {
-    container.innerHTML = '<div class="result empty-state">작업이 없습니다</div><div id="job-status-result" class="result"></div>';
+    container.innerHTML = '<div class="empty-state">작업이 없습니다</div>';
     return;
   }
   
@@ -722,7 +640,6 @@ const renderJobsTable = (jobs) => {
   html += `
       </tbody>
     </table>
-    <div id="job-status-result" class="result" style="margin-top: 1rem;"></div>
   `;
   
   container.innerHTML = html;
@@ -733,7 +650,6 @@ let autoRefreshInterval = null;
 
 const refreshJobsList = async () => {
   const queueName = document.getElementById("queue-select").value;
-  const target = "job-status-result";
   
   try {
     const response = await fetch(`/jobs/${queueName}`);
@@ -742,9 +658,8 @@ const refreshJobsList = async () => {
     }
     const jobs = await response.json();
     renderJobsTable(jobs);
-    prettyPrint(target, jobs);
   } catch (error) {
-    prettyPrint(target, { error: error.message || error });
+    alert(`작업 리스트 조회 실패: ${error.message || error}`);
   }
 };
 
