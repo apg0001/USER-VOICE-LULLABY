@@ -166,33 +166,26 @@
 
     <section class="job-status">
       <h3>작업 상태 조회</h3>
-      <form id="job-status-form">
-        <label>
-          큐 이름
-          <select name="queue_name" required>
+      <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem;">
+        <label style="margin: 0;">
+          큐 선택
+          <select name="queue_name" id="queue-select" required>
             <option value="train">train</option>
             <option value="inference">inference</option>
           </select>
         </label>
-        <label>
-          Job ID
-          <input
-            name="job_id"
-            placeholder="작업 ID를 입력하세요"
-            required
-            autocomplete="off"
-          />
-        </label>
-        <button type="submit">상태 조회</button>
-      </form>
-      <div class="auto-refresh">
-        <input type="checkbox" id="auto-refresh-checkbox" />
-        <label for="auto-refresh-checkbox" style="margin: 0; cursor: pointer">
-          자동 새로고침 (5초마다)
-        </label>
+        <button id="jobs-refresh-btn" style="margin: 0;">새로고침</button>
+        <div class="auto-refresh" style="margin: 0;">
+          <input type="checkbox" id="auto-refresh-checkbox" />
+          <label for="auto-refresh-checkbox" style="margin: 0; cursor: pointer">
+            자동 새로고침 (5초마다)
+          </label>
+        </div>
       </div>
-      <div id="job-status-result" class="result">
-        작업 ID를 입력하고 조회하세요
+      <div id="jobs-list-container">
+        <div id="job-status-result" class="result">
+          큐를 선택하고 새로고침 버튼을 클릭하세요
+        </div>
       </div>
     </section>
 

@@ -494,15 +494,11 @@ document
 
       prettyPrint(target, data);
 
-      // Job ID가 있으면 자동으로 상태 조회 섹션에 표시
+      // Job ID가 있으면 자동으로 작업 리스트 새로고침
       if (data.job_id) {
-        document.querySelector('input[name="job_id"]').value = data.job_id;
-        document.querySelector('select[name="queue_name"]').value = "train";
-        // 자동으로 상태 조회
+        document.getElementById("queue-select").value = "train";
         setTimeout(() => {
-          document.getElementById("job-status-form").dispatchEvent(
-            new Event("submit", { bubbles: true, cancelable: true })
-          );
+          refreshJobsList();
         }, 500);
       }
     } catch (error) {
@@ -564,15 +560,11 @@ document
 
       prettyPrint(target, data);
 
-      // Job ID가 있으면 자동으로 상태 조회 섹션에 표시
+      // Job ID가 있으면 자동으로 작업 리스트 새로고침
       if (data.job_id) {
-        document.querySelector('input[name="job_id"]').value = data.job_id;
-        document.querySelector('select[name="queue_name"]').value = "inference";
-        // 자동으로 상태 조회
+        document.getElementById("queue-select").value = "inference";
         setTimeout(() => {
-          document.getElementById("job-status-form").dispatchEvent(
-            new Event("submit", { bubbles: true, cancelable: true })
-          );
+          refreshJobsList();
         }, 500);
       }
       
@@ -585,97 +577,109 @@ document
     }
   });
 
-// 작업 상태 조회
-let autoRefreshInterval = null;
-
-const checkJobStatus = async (queueName, jobId) => {
-  const target = "job-status-result";
-  try {
-    const response = await fetch(`/jobs/${queueName}/${jobId}`);
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw data;
-    }
-
-    // 상태에 따른 스타일링
-    const status = data.status;
+// 작업 리스트를 테이블로 표시
+const renderJobsTable = (jobs) => {
+  const container = document.getElementById("jobs-list-container");
+  
+  if (!jobs || jobs.length === 0) {
+    container.innerHTML = '<div class="result empty-state">작업이 없습니다</div><div id="job-status-result" class="result"></div>';
+    return;
+  }
+  
+  let html = `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Job ID</th>
+          <th>상태</th>
+          <th>진행률</th>
+          <th>생성 시간</th>
+          <th>시작 시간</th>
+          <th>완료 시간</th>
+          <th>결과</th>
+          <th>오류</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+  
+  jobs.forEach((job) => {
+    const status = job.status;
+    const statusClass = `status-${status}`;
     const statusColors = {
       pending: "#3b82f6",
       running: "#f59e0b",
       completed: "#10b981",
       failed: "#ef4444",
     };
+    
+    const progress = job.progress 
+      ? `${job.progress.current_epoch}/${job.progress.total_epoch} (${job.progress.progress_percent}%)`
+      : "-";
+    
+    const result = job.result ? JSON.stringify(job.result).substring(0, 100) + (JSON.stringify(job.result).length > 100 ? "..." : "") : "-";
+    const error = job.error || "-";
+    
+    html += `
+      <tr style="border-left: 4px solid ${statusColors[status] || "#6b7280"}">
+        <td><strong>${job.job_id.substring(0, 8)}...</strong></td>
+        <td><span class="status-badge ${statusClass}">${status}</span></td>
+        <td>${progress}</td>
+        <td>${formatDate(job.created_at)}</td>
+        <td>${formatDate(job.started_at)}</td>
+        <td>${formatDate(job.completed_at)}</td>
+        <td style="font-size: 0.8rem; max-width: 200px; word-break: break-all;">${result}</td>
+        <td style="font-size: 0.8rem; max-width: 200px; word-break: break-all; color: #ef4444;">${error}</td>
+      </tr>
+    `;
+  });
+  
+  html += `
+      </tbody>
+    </table>
+    <div id="job-status-result" class="result" style="margin-top: 1rem;"></div>
+  `;
+  
+  container.innerHTML = html;
+};
 
-    const resultBox = jsonBox(target);
-    resultBox.style.borderLeft = `4px solid ${statusColors[status] || "#6b7280"}`;
-    prettyPrint(target, data);
+// 작업 리스트 조회
+let autoRefreshInterval = null;
 
-    // 완료되면 자동 새로고침 중지
-    if (status === "completed" || status === "failed") {
-      const checkbox = document.getElementById("auto-refresh-checkbox");
-      if (checkbox.checked) {
-        checkbox.checked = false;
-        if (autoRefreshInterval) {
-          clearInterval(autoRefreshInterval);
-          autoRefreshInterval = null;
-        }
-      }
-      
-      // 완료 시 추론 결과 리스트 새로고침
-      if (status === "completed" && queueName === "inference") {
-        setTimeout(() => {
-          refreshOutputs();
-        }, 1000);
-      }
+const refreshJobsList = async () => {
+  const queueName = document.getElementById("queue-select").value;
+  const target = "job-status-result";
+  
+  try {
+    const response = await fetch(`/jobs/${queueName}`);
+    if (!response.ok) {
+      throw new Error("작업 리스트 조회 실패");
     }
+    const jobs = await response.json();
+    renderJobsTable(jobs);
+    prettyPrint(target, jobs);
   } catch (error) {
-    prettyPrint(target, { error: error.detail || error.message || error });
+    prettyPrint(target, { error: error.message || error });
   }
 };
 
-document.getElementById("job-status-form").addEventListener("submit", (event) => {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const queueName = form.queue_name.value;
-  const jobId = form.job_id.value.trim();
+// 새로고침 버튼
+document.getElementById("jobs-refresh-btn").addEventListener("click", refreshJobsList);
 
-  if (!jobId) {
-    prettyPrint("job-status-result", { error: "Job ID를 입력해주세요." });
-    return;
-  }
-
-  checkJobStatus(queueName, jobId);
-});
+// 큐 선택 변경 시 자동 새로고침
+document.getElementById("queue-select").addEventListener("change", refreshJobsList);
 
 // 자동 새로고침 기능
 document.getElementById("auto-refresh-checkbox").addEventListener("change", (event) => {
   const checkbox = event.target;
-  const form = document.getElementById("job-status-form");
-  const queueName = form.queue_name.value;
-  const jobId = form.job_id.value.trim();
-
+  
   if (checkbox.checked) {
-    if (!jobId) {
-      checkbox.checked = false;
-      alert("Job ID를 먼저 입력해주세요.");
-      return;
-    }
-
     // 즉시 한 번 조회
-    checkJobStatus(queueName, jobId);
-
+    refreshJobsList();
+    
     // 5초마다 자동 조회
     autoRefreshInterval = setInterval(() => {
-      const currentQueueName = form.queue_name.value;
-      const currentJobId = form.job_id.value.trim();
-      if (currentJobId) {
-        checkJobStatus(currentQueueName, currentJobId);
-      } else {
-        checkbox.checked = false;
-        clearInterval(autoRefreshInterval);
-        autoRefreshInterval = null;
-      }
+      refreshJobsList();
     }, 5000);
   } else {
     if (autoRefreshInterval) {
@@ -684,3 +688,6 @@ document.getElementById("auto-refresh-checkbox").addEventListener("change", (eve
     }
   }
 });
+
+// 페이지 로드 시 초기 조회
+refreshJobsList();

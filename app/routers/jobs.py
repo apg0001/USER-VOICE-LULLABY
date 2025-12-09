@@ -76,6 +76,37 @@ def _get_training_progress(job, queue_name: str) -> dict | None:
         return None
 
 
+@router.get("/jobs/{queue_name}", response_model=list[JobStatusResponse])
+async def list_jobs(
+    queue_name: str,
+    train_queue: AsyncJobQueue = Depends(get_train_queue),
+    inference_queue: AsyncJobQueue = Depends(get_inference_queue),
+) -> list[JobStatusResponse]:
+    """큐에 있는 모든 작업 리스트를 조회합니다."""
+    queue = None
+    if queue_name == "train":
+        queue = train_queue
+    elif queue_name == "inference":
+        queue = inference_queue
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown queue: {queue_name}")
+    
+    all_jobs = queue.list_all_jobs()
+    results = []
+    
+    for job_data in all_jobs:
+        # 학습 작업의 경우 진행률 계산
+        job = queue.get_job_status(job_data["job_id"])
+        progress = None
+        if job:
+            progress = _get_training_progress(job, queue_name)
+        
+        job_data["progress"] = progress
+        results.append(JobStatusResponse(**job_data))
+    
+    return results
+
+
 @router.get("/jobs/{queue_name}/{job_id}", response_model=JobStatusResponse)
 async def get_job_status(
     queue_name: str,
@@ -83,7 +114,7 @@ async def get_job_status(
     train_queue: AsyncJobQueue = Depends(get_train_queue),
     inference_queue: AsyncJobQueue = Depends(get_inference_queue),
 ) -> JobStatusResponse:
-    """작업 상태를 조회합니다."""
+    """특정 작업 상태를 조회합니다."""
     queue = None
     if queue_name == "train":
         queue = train_queue

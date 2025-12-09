@@ -112,6 +112,23 @@ class AsyncJobQueue:
             "result": job.result,
             "error": job.error,
         }
+    
+    def list_all_jobs(self) -> list[dict[str, Any]]:
+        """모든 작업 리스트 반환"""
+        jobs = []
+        for job in self._jobs.values():
+            jobs.append({
+                "job_id": job.job_id,
+                "status": job.status.value,
+                "created_at": job.created_at.isoformat(),
+                "started_at": job.started_at.isoformat() if job.started_at else None,
+                "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+                "result": job.result,
+                "error": job.error,
+                "metadata": job.metadata,
+            })
+        # 생성 시간 역순으로 정렬 (최신 작업이 먼저)
+        return sorted(jobs, key=lambda x: x["created_at"], reverse=True)
 
     def stats(self) -> dict[str, Any]:
         """현재 큐 상태를 딕셔너리로 반환한다."""
