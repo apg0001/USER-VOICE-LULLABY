@@ -4,6 +4,10 @@ const jsonBox = (id) => document.getElementById(id);
 
 const prettyPrint = (target, data) => {
   const box = jsonBox(target);
+  if (!box) {
+    console.warn(`Element with id "${target}" not found`);
+    return;
+  }
   box.textContent = JSON.stringify(data, null, 2);
 };
 
@@ -103,7 +107,7 @@ const renderModelsTable = (models) => {
   const container = document.getElementById("models-list-container");
   
   if (!models || models.length === 0) {
-    container.innerHTML = '<div class="result empty-state">모델이 없습니다</div>';
+    container.innerHTML = '<div class="result empty-state">모델이 없습니다</div><div id="models-list" class="result"></div>';
     return;
   }
   
@@ -115,6 +119,7 @@ const renderModelsTable = (models) => {
           <th>모델 파일</th>
           <th>인덱스 파일</th>
           <th>생성 시간</th>
+          <th>작업</th>
         </tr>
       </thead>
       <tbody>
@@ -123,12 +128,18 @@ const renderModelsTable = (models) => {
   models.forEach((model) => {
     const modelFiles = model.model_files.map(f => f.split("/").pop()).join(", ");
     const indexFiles = model.index_files.map(f => f.split("/").pop()).join(", ") || "-";
+    const modelId = encodeURIComponent(model.model_id);
     html += `
       <tr>
         <td><strong>${model.model_id}</strong></td>
         <td>${modelFiles || "-"}</td>
         <td>${indexFiles}</td>
         <td>${formatDate(model.created_at)}</td>
+        <td>
+          <div class="file-actions">
+            <button onclick="deleteModel('${modelId}', '${model.model_id}')" style="background: #ef4444;">삭제</button>
+          </div>
+        </td>
       </tr>
     `;
   });
@@ -136,6 +147,7 @@ const renderModelsTable = (models) => {
   html += `
       </tbody>
     </table>
+    <div id="models-list" class="result" style="margin-top: 1rem;"></div>
   `;
   
   container.innerHTML = html;
@@ -146,7 +158,7 @@ const renderOutputsTable = (outputs) => {
   const container = document.getElementById("outputs-list-container");
   
   if (!outputs || outputs.length === 0) {
-    container.innerHTML = '<div class="result empty-state">추론 결과가 없습니다</div>';
+    container.innerHTML = '<div class="result empty-state">추론 결과가 없습니다</div><div id="outputs-list" class="result"></div>';
     return;
   }
   
@@ -182,6 +194,7 @@ const renderOutputsTable = (outputs) => {
           <div class="file-actions">
             <button onclick="downloadOutput('${outputId}', '${fileName}')">다운로드</button>
             <button onclick="playOutput('${outputId}', '${fileName}')">재생</button>
+            <button onclick="deleteOutput('${outputId}', '${fileName}')" style="background: #ef4444;">삭제</button>
           </div>
         </td>
       </tr>
@@ -194,6 +207,7 @@ const renderOutputsTable = (outputs) => {
     <div id="audio-player-container" class="hidden" style="margin-top: 1rem;">
       <audio id="audio-player" class="audio-player" controls></audio>
     </div>
+    <div id="outputs-list" class="result" style="margin-top: 1rem;"></div>
   `;
   
   container.innerHTML = html;
@@ -232,6 +246,68 @@ window.playOutput = (outputId, fileName) => {
       console.error("재생 실패:", err);
       alert("오디오 재생에 실패했습니다.");
     });
+  }
+};
+
+// 모델 삭제 함수
+window.deleteModel = async (modelId, modelName) => {
+  if (!confirm(`모델 "${modelName}"을(를) 삭제하시겠습니까?`)) {
+    return;
+  }
+  
+  const target = "models-list";
+  prettyPrint(target, { status: "삭제 중..." });
+  
+  try {
+    const response = await fetch(`/models/${modelId}`, {
+      method: "DELETE",
+    });
+    const data = await response.json();
+    
+    if (!response.ok) {
+      throw data;
+    }
+    
+    prettyPrint(target, data);
+    
+    // 삭제 후 리스트 새로고침
+    setTimeout(() => {
+      refreshModels();
+    }, 500);
+  } catch (error) {
+    prettyPrint(target, { error: error.detail || error.message || error });
+    alert(`모델 삭제 실패: ${error.detail || error.message || error}`);
+  }
+};
+
+// 출력 파일 삭제 함수
+window.deleteOutput = async (outputId, fileName) => {
+  if (!confirm(`파일 "${fileName}"을(를) 삭제하시겠습니까?`)) {
+    return;
+  }
+  
+  const target = "outputs-list";
+  prettyPrint(target, { status: "삭제 중..." });
+  
+  try {
+    const response = await fetch(`/outputs/${outputId}`, {
+      method: "DELETE",
+    });
+    const data = await response.json();
+    
+    if (!response.ok) {
+      throw data;
+    }
+    
+    prettyPrint(target, data);
+    
+    // 삭제 후 리스트 새로고침
+    setTimeout(() => {
+      refreshOutputs();
+    }, 500);
+  } catch (error) {
+    prettyPrint(target, { error: error.detail || error.message || error });
+    alert(`파일 삭제 실패: ${error.detail || error.message || error}`);
   }
 };
 
