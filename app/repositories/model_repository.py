@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime
+import json
 import shutil
 from pathlib import Path
 from typing import Optional
@@ -45,12 +46,27 @@ class ModelRepository:
             # .pth 파일이 있는 경우만 모델로 간주
             if pth_files:
                 created_at = self._get_created_at(model_dir)
+                
+                # 모델 정보 JSON 파일 로드
+                model_info_json = self._load_model_info(model_dir)
+                
+                # 절대 경로 생성
+                pth_files_absolute = [str((model_dir / f).resolve()) for f in sorted(pth_files)]
+                index_files_absolute = [str((model_dir / f).resolve()) for f in sorted(index_files)]
+                
                 models.append(
                     ModelInfo(
                         model_id=model_id,
                         model_files=sorted(pth_files),
                         index_files=sorted(index_files),
                         created_at=created_at,
+                        model_name=model_info_json.get("model_name") if model_info_json else None,
+                        embedder_model=model_info_json.get("embedder_model") if model_info_json else None,
+                        sample_rate=model_info_json.get("sample_rate") if model_info_json else None,
+                        total_epoch=model_info_json.get("total_epoch") if model_info_json else None,
+                        vocoder=model_info_json.get("vocoder") if model_info_json else None,
+                        model_files_absolute=pth_files_absolute,
+                        index_files_absolute=index_files_absolute,
                     )
                 )
         
@@ -93,5 +109,19 @@ class ModelRepository:
                 model_dir.stat().st_mtime
             ).isoformat()
         except Exception:
+            return None
+    
+    @staticmethod
+    def _load_model_info(model_dir: Path) -> Optional[dict]:
+        """모델 정보 JSON 파일 로드"""
+        model_info_path = model_dir / "model_info.json"
+        if not model_info_path.exists():
+            return None
+        
+        try:
+            with open(model_info_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"모델 정보 JSON 파일 로드 실패: {model_info_path} - {e}")
             return None
 

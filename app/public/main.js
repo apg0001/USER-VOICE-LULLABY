@@ -116,8 +116,13 @@ const renderModelsTable = (models) => {
       <thead>
         <tr>
           <th>모델 ID</th>
-          <th>모델 파일</th>
-          <th>인덱스 파일</th>
+          <th>모델 이름</th>
+          <th>임베더</th>
+          <th>샘플레이트</th>
+          <th>Epoch</th>
+          <th>보코더</th>
+          <th>모델 파일 (절대 경로)</th>
+          <th>인덱스 파일 (절대 경로)</th>
           <th>생성 시간</th>
           <th>작업</th>
         </tr>
@@ -126,14 +131,31 @@ const renderModelsTable = (models) => {
   `;
   
   models.forEach((model) => {
-    const modelFiles = model.model_files.map(f => f.split("/").pop()).join(", ");
-    const indexFiles = model.index_files.map(f => f.split("/").pop()).join(", ") || "-";
     const modelId = encodeURIComponent(model.model_id);
+    const modelName = model.model_name || "-";
+    const embedder = model.embedder_model || "-";
+    const sampleRate = model.sample_rate ? `${model.sample_rate}Hz` : "-";
+    const totalEpoch = model.total_epoch || "-";
+    const vocoder = model.vocoder || "-";
+    
+    // 절대 경로 표시 (없으면 상대 경로 파일명)
+    const modelFilesAbsolute = model.model_files_absolute && model.model_files_absolute.length > 0
+      ? model.model_files_absolute.join(", ")
+      : model.model_files.map(f => f.split("/").pop()).join(", ") || "-";
+    const indexFilesAbsolute = model.index_files_absolute && model.index_files_absolute.length > 0
+      ? model.index_files_absolute.join(", ")
+      : model.index_files.map(f => f.split("/").pop()).join(", ") || "-";
+    
     html += `
       <tr>
         <td><strong>${model.model_id}</strong></td>
-        <td>${modelFiles || "-"}</td>
-        <td>${indexFiles}</td>
+        <td>${modelName}</td>
+        <td>${embedder}</td>
+        <td>${sampleRate}</td>
+        <td>${totalEpoch}</td>
+        <td>${vocoder}</td>
+        <td style="font-size: 0.85rem; max-width: 300px; word-break: break-all;">${modelFilesAbsolute}</td>
+        <td style="font-size: 0.85rem; max-width: 300px; word-break: break-all;">${indexFilesAbsolute}</td>
         <td>${formatDate(model.created_at)}</td>
         <td>
           <div class="file-actions">

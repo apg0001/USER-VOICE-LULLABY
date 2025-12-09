@@ -219,6 +219,30 @@ async def train_model(
         )
     logger.info(f"생성된 모델 파일 수: {len(model_files)}")
 
+    # 모델 파일과 인덱스 파일의 절대 경로 수집
+    pth_files = list(model_dir.glob("*.pth"))
+    index_files = list(model_dir.glob("*.index"))
+    
+    pth_files_absolute = [str(f.resolve()) for f in pth_files]
+    index_files_absolute = [str(f.resolve()) for f in index_files]
+
+    # 모델 정보를 JSON 파일로 저장
+    model_info_json = {
+        "model_name": model_name,
+        "embedder_model": embedder_model,
+        "sample_rate": sample_rate,
+        "total_epoch": total_epoch,
+        "vocoder": vocoder,
+        "model_files_absolute": pth_files_absolute,
+        "index_files_absolute": index_files_absolute,
+    }
+    
+    import json
+    model_info_path = model_dir / "model_info.json"
+    with open(model_info_path, "w", encoding="utf-8") as f:
+        json.dump(model_info_json, f, indent=2, ensure_ascii=False)
+    logger.info(f"모델 정보 저장 완료: {model_info_path}")
+
     # 학습용 데이터셋 및 중간 산출물 정리
     try:
         await _remove_dataset(dataset_path)

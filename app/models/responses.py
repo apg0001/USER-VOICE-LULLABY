@@ -39,6 +39,14 @@ class ModelInfo(BaseModel):
     model_files: list[str] = Field(..., description=".pth 모델 파일 목록")
     index_files: list[str] = Field(..., description=".index 파일 목록")
     created_at: Optional[str] = Field(None, description="생성 시간")
+    # 모델 학습 정보 (JSON 파일에서 로드)
+    model_name: Optional[str] = Field(None, description="모델 이름")
+    embedder_model: Optional[str] = Field(None, description="임베더 모델")
+    sample_rate: Optional[int] = Field(None, description="샘플레이트")
+    total_epoch: Optional[int] = Field(None, description="총 epoch")
+    vocoder: Optional[str] = Field(None, description="보코더")
+    model_files_absolute: list[str] = Field(default_factory=list, description=".pth 모델 파일 절대 경로 목록")
+    index_files_absolute: list[str] = Field(default_factory=list, description=".index 파일 절대 경로 목록")
 
 
 class OutputInfo(BaseModel):
