@@ -28,6 +28,7 @@ class Job:
     result: Any = None
     error: str | None = None
     future: asyncio.Future | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)  # 작업 메타데이터 (예: model_name, total_epoch)
 
 
 class AsyncJobQueue:

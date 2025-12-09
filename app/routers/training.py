@@ -109,6 +109,14 @@ async def start_training_files(
             training_service.train_from_request,
             request,
         )
+        
+        # job에 metadata 저장 (진행률 계산용)
+        job = train_queue.get_job_status(job_id)
+        if job:
+            job.metadata = {
+                "model_name": model_id,
+                "total_epoch": total_epoch,
+            }
 
         return {"status": "queued", "job_id": job_id, "model_id": model_id}
     except HTTPException:

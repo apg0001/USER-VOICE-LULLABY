@@ -58,3 +58,4 @@ class JobStatusResponse(BaseModel):
     completed_at: Optional[str] = None
     result: dict | None = None
     error: Optional[str] = None
+    progress: Optional[dict] = Field(None, description="작업 진행률 정보 (학습 작업의 경우)")
