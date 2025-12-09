@@ -122,6 +122,9 @@ class AsyncJobQueue:
         }
 
     async def _worker_loop(self) -> None:
+        from .logging_config import get_logger
+        worker_logger = get_logger(f"{__name__}.{self.name}_worker")
+        
         while True:
             job_id, coroutine_func, args, kwargs, future = await self._queue.get()
             job = self._jobs.get(job_id)
@@ -134,11 +137,21 @@ class AsyncJobQueue:
                 job.status = JobStatus.RUNNING
                 job.started_at = datetime.now()
                 
+                worker_logger.info(
+                    f"작업 시작 | queue={self.name} | job_id={job_id} | "
+                    f"function={coroutine_func.__name__ if hasattr(coroutine_func, '__name__') else 'unknown'}"
+                )
+                
                 result = await coroutine_func(*args, **kwargs)
                 
                 job.status = JobStatus.COMPLETED
                 job.completed_at = datetime.now()
                 job.result = result
+                
+                worker_logger.info(
+                    f"작업 완료 | queue={self.name} | job_id={job_id} | "
+                    f"duration={(job.completed_at - job.started_at).total_seconds():.2f}초"
+                )
                 
                 if not future.done():
                     future.set_result(result)
@@ -146,6 +159,11 @@ class AsyncJobQueue:
                 job.status = JobStatus.FAILED
                 job.completed_at = datetime.now()
                 job.error = str(exc)
+                
+                worker_logger.error(
+                    f"작업 실패 | queue={self.name} | job_id={job_id} | error={str(exc)}",
+                    exc_info=True
+                )
                 
                 if not future.done():
                     future.set_exception(exc)

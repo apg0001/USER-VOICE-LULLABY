@@ -68,21 +68,25 @@ async def start_inference_files(
     target_audio: UploadFile = File(...),
     model_path: str = Form(...),
     index_path: Optional[str] = Form(None),
-    output_dir: str = Form("outputs"),
-    volume_envelope: Optional[float] = Form(INFERENCE_DEFAULTS.volume_envelope),
-    protect: Optional[float] = Form(INFERENCE_DEFAULTS.protect),
-    f0_autotune: Optional[bool] = Form(INFERENCE_DEFAULTS.f0_autotune),
-    f0_autotune_strength: Optional[float] = Form(
-        INFERENCE_DEFAULTS.f0_autotune_strength
-    ),
-    embedder_model: Optional[str] = Form(INFERENCE_DEFAULTS.embedder_model),
+    output_dir: Optional[str] = Form(None),
+    volume_envelope: Optional[float] = Form(None),
+    protect: Optional[float] = Form(None),
+    f0_autotune: Optional[bool] = Form(None),
+    f0_autotune_strength: Optional[float] = Form(None),
+    embedder_model: Optional[str] = Form(None),
     inference_service: InferenceService = Depends(get_inference_service),
     inference_queue: AsyncJobQueue = Depends(get_inference_queue),
     file_repo: FileRepository = Depends(get_file_repository),
     monitor: ResourceMonitor = Depends(get_resource_monitor),
 ):
     """파일 업로드로 추론 시작 요청 처리"""
-    logger.info(f"파일 업로드 추론 요청: {target_audio.filename}, model: {model_path}")
+    # 기본값 적용 (None인 경우에만)
+    output_dir = output_dir if output_dir is not None else "outputs"
+    volume_envelope = volume_envelope if volume_envelope is not None else INFERENCE_DEFAULTS.volume_envelope
+    protect = protect if protect is not None else INFERENCE_DEFAULTS.protect
+    f0_autotune = f0_autotune if f0_autotune is not None else INFERENCE_DEFAULTS.f0_autotune
+    f0_autotune_strength = f0_autotune_strength if f0_autotune_strength is not None else INFERENCE_DEFAULTS.f0_autotune_strength
+    embedder_model = embedder_model if embedder_model is not None else INFERENCE_DEFAULTS.embedder_model
 
     try:
         # 파일 저장
@@ -107,6 +111,13 @@ async def start_inference_files(
         job_id = inference_queue.enqueue_async(
             inference_service.infer_from_request,
             request,
+        )
+
+        logger.info(
+            f"추론 작업 등록 완료 | job_id={job_id} | model_path={model_path} | "
+            f"index_path={index_path} | output_dir={output_dir} | "
+            f"volume_envelope={volume_envelope} | protect={protect} | "
+            f"f0_autotune={f0_autotune} | embedder_model={embedder_model}"
         )
 
         return {"status": "queued", "job_id": job_id}

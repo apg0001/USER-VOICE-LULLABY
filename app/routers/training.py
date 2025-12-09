@@ -60,18 +60,16 @@ async def start_training(
 
 @router.post("/train-files")
 async def start_training_files(
-    sample_rate: int = Form(TRAINING_DEFAULTS.sample_rate),
-    total_epoch: int = Form(TRAINING_DEFAULTS.total_epoch),
-    batch_size: int = Form(TRAINING_DEFAULTS.batch_size),
+    sample_rate: Optional[int] = Form(None),
+    total_epoch: Optional[int] = Form(None),
+    batch_size: Optional[int] = Form(None),
     files: List[UploadFile] = File(...),
-    embedder_model: Optional[str] = Form(TRAINING_DEFAULTS.embedder_model),
-    vocoder: Optional[str] = Form(TRAINING_DEFAULTS.vocoder),
-    overtraining_detector: Optional[bool] = Form(
-        TRAINING_DEFAULTS.overtraining_detector
-    ),
-    custom_pretrained: Optional[bool] = Form(TRAINING_DEFAULTS.custom_pretrained),
-    g_pretrained_path: Optional[str] = Form(TRAINING_DEFAULTS.g_pretrained_path),
-    d_pretrained_path: Optional[str] = Form(TRAINING_DEFAULTS.d_pretrained_path),
+    embedder_model: Optional[str] = Form(None),
+    vocoder: Optional[str] = Form(None),
+    overtraining_detector: Optional[bool] = Form(None),
+    custom_pretrained: Optional[bool] = Form(None),
+    g_pretrained_path: Optional[str] = Form(None),
+    d_pretrained_path: Optional[str] = Form(None),
     training_service: TrainingService = Depends(get_training_service),
     train_queue: AsyncJobQueue = Depends(get_train_queue),
     file_repo: FileRepository = Depends(get_file_repository),
@@ -81,7 +79,16 @@ async def start_training_files(
     # 모델 ID 자동 생성
     model_id = str(uuid4())
 
-    logger.info(f"파일 업로드 학습 요청 - 모델 ID: {model_id}")
+    # 기본값 적용 (None인 경우에만)
+    sample_rate = sample_rate if sample_rate is not None else TRAINING_DEFAULTS.sample_rate
+    total_epoch = total_epoch if total_epoch is not None else TRAINING_DEFAULTS.total_epoch
+    batch_size = batch_size if batch_size is not None else TRAINING_DEFAULTS.batch_size
+    embedder_model = embedder_model if embedder_model is not None else TRAINING_DEFAULTS.embedder_model
+    vocoder = vocoder if vocoder is not None else TRAINING_DEFAULTS.vocoder
+    overtraining_detector = overtraining_detector if overtraining_detector is not None else TRAINING_DEFAULTS.overtraining_detector
+    custom_pretrained = custom_pretrained if custom_pretrained is not None else TRAINING_DEFAULTS.custom_pretrained
+    g_pretrained_path = g_pretrained_path if g_pretrained_path is not None else TRAINING_DEFAULTS.g_pretrained_path
+    d_pretrained_path = d_pretrained_path if d_pretrained_path is not None else TRAINING_DEFAULTS.d_pretrained_path
 
     try:
         # 파일 저장
@@ -117,6 +124,12 @@ async def start_training_files(
                 "model_name": model_id,
                 "total_epoch": total_epoch,
             }
+
+        logger.info(
+            f"학습 작업 등록 완료 | job_id={job_id} | model_id={model_id} | "
+            f"sample_rate={sample_rate} | total_epoch={total_epoch} | batch_size={batch_size} | "
+            f"embedder_model={embedder_model} | vocoder={vocoder} | dataset_path={dataset_path}"
+        )
 
         return {"status": "queued", "job_id": job_id, "model_id": model_id}
     except HTTPException:

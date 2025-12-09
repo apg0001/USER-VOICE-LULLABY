@@ -79,13 +79,23 @@ async def _run_blocking(func, *args, **kwargs):
 
 # 학습 완료 후 학습용 데이터셋 삭제
 async def _remove_dataset(dataset_path):
+    """학습용 데이터셋 디렉토리 삭제 (존재하지 않으면 무시)"""
     path = Path(dataset_path)
     if not path.exists():
-        logger.error(f"삭제할 경로를 찾을 수 없습니다: {dataset_path}")
-        raise FileNotFoundError(f"삭제할 경로를 찾을 수 없습니다: {dataset_path}")
+        logger.debug(f"삭제할 데이터셋 경로가 존재하지 않음 (이미 삭제되었거나 생성되지 않음): {dataset_path}")
+        return
+    
+    if not path.is_dir():
+        logger.warning(f"데이터셋 경로가 디렉토리가 아님: {dataset_path}")
+        return
 
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, lambda: shutil.rmtree(path))
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, lambda: shutil.rmtree(path))
+        logger.info(f"데이터셋 디렉토리 삭제 완료: {dataset_path}")
+    except Exception as e:
+        logger.error(f"데이터셋 삭제 중 오류 발생: {dataset_path} - {e}")
+        raise
 
 
 # model_dir 내 모든 파일과 폴더를 삭제하되, 확장자가 .pth 인 파일만 유지
@@ -132,7 +142,7 @@ async def train_model(
     total_epoch: Optional[int] = None,
     batch_size: Optional[int] = None,
     embedder_model: Optional[str] = None,
-    vocoder: vocoder[str] = None,
+    vocoder: Optional[str] = None,
     overtraining_detector: Optional[bool] = None,
     custom_pretrained: bool = False,
     g_pretrained_path: str = None,
@@ -226,6 +236,13 @@ async def train_model(
     pth_files_absolute = [str(f.resolve()) for f in pth_files]
     index_files_absolute = [str(f.resolve()) for f in index_files]
 
+    # 최종 모델 저장 경로 로그 출력
+    if pth_files_absolute:
+        logger.info(f"최종 모델 저장 경로 (.pth): {', '.join(pth_files_absolute)}")
+    if index_files_absolute:
+        logger.info(f"최종 인덱스 파일 저장 경로 (.index): {', '.join(index_files_absolute)}")
+    logger.info(f"모델 디렉토리 절대 경로: {model_dir.resolve()}")
+
     # 모델 정보를 JSON 파일로 저장
     model_info_json = {
         "model_name": model_name,
@@ -246,11 +263,10 @@ async def train_model(
     # 학습용 데이터셋 및 중간 산출물 정리
     try:
         await _remove_dataset(dataset_path)
-        logger.info("학습용 데이터셋 삭제 완료: %s", dataset_path)
-    except FileNotFoundError:
-        logger.warning("삭제 대상 데이터셋 경로 없음: %s", dataset_path)
     except Exception as e:
-        logger.warning(f"데이터셋 삭제 중 오류 발생 (무시): {dataset_path} - {e}")
+        logger.error(f"데이터셋 삭제 실패: {dataset_path} - {e}")
+        # 데이터셋 삭제 실패 시에도 경고만 하고 계속 진행 (학습은 완료되었으므로)
+        logger.warning("데이터셋 삭제 실패했지만 학습은 완료되었습니다. 수동으로 삭제해주세요.")
 
     try:
         await _remove_preprocess(model_dir)
