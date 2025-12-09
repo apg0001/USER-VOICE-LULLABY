@@ -64,6 +64,66 @@
             />
           </label>
           <label>
+            Vocoder (선택)
+            <input
+              name="vocoder"
+              placeholder="HiFi-GAN (기본: HiFi-GAN)"
+              autocomplete="off"
+            />
+          </label>
+          <label>
+            Overtraining Detector (선택)
+            <select name="overtraining_detector">
+              <option value="">기본값 사용</option>
+              <option value="true">활성화</option>
+              <option value="false">비활성화</option>
+            </select>
+          </label>
+          <label>
+            Custom Pretrained (선택)
+            <select name="custom_pretrained" id="custom-pretrained-select">
+              <option value="">기본값 사용 (false)</option>
+              <option value="true">활성화</option>
+              <option value="false">비활성화</option>
+            </select>
+          </label>
+          <div id="pretrained-model-group" style="display: none;">
+            <div class="model-select-group">
+              <label>
+                G Pretrained Model (선택)
+                <select name="g_pretrained_select" id="g-pretrained-select">
+                  <option value="">모델을 선택하세요</option>
+                </select>
+              </label>
+              <label>
+                G Pretrained Path (선택, 직접 입력)
+                <input
+                  name="g_pretrained_path"
+                  id="g-pretrained-path-input"
+                  placeholder="G 모델 사전 학습 경로"
+                  autocomplete="off"
+                />
+              </label>
+            </div>
+            <div class="model-select-group">
+              <label>
+                D Pretrained Model (선택)
+                <select name="d_pretrained_select" id="d-pretrained-select">
+                  <option value="">모델을 선택하세요</option>
+                </select>
+              </label>
+              <label>
+                D Pretrained Path (선택, 직접 입력)
+                <input
+                  name="d_pretrained_path"
+                  id="d-pretrained-path-input"
+                  placeholder="D 모델 사전 학습 경로"
+                  autocomplete="off"
+                />
+              </label>
+            </div>
+          </div>
+          <label>
             학습용 음성 파일들 (mp3/wav, 다중 선택 가능)
             <input
               name="files"
@@ -149,6 +209,28 @@
           <label>
             F0 Autotune (선택)
             <input name="f0_autotune" type="checkbox" />
+          </label>
+          <label>
+            F0 Autotune Strength (선택, F0 Autotune 활성화 시)
+            <input
+              name="f0_autotune_strength"
+              type="number"
+              step="0.1"
+              min="0"
+              max="2"
+              placeholder="기본 1.0"
+            />
+          </label>
+          <label>
+            Index Rate (선택)
+            <input
+              name="index_rate"
+              type="number"
+              step="0.01"
+              min="0"
+              max="1"
+              placeholder="기본 0.75"
+            />
           </label>
           <label>
             Embedder Model (선택)

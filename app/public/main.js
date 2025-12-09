@@ -53,6 +53,9 @@ const loadModels = async () => {
       modelSelect.appendChild(option);
     });
     
+    // 사전 학습 모델 드롭다운 업데이트
+    updatePretrainedModelDropdowns();
+    
     return models;
   } catch (error) {
     console.error("모델 로드 실패:", error);
@@ -93,6 +96,64 @@ document.getElementById("model-select").addEventListener("change", (e) => {
     option.textContent = indexFile;
     indexSelect.appendChild(option);
   });
+});
+
+// 사전 학습 모델 드롭다운 업데이트
+const updatePretrainedModelDropdowns = () => {
+  const gSelect = document.getElementById("g-pretrained-select");
+  const dSelect = document.getElementById("d-pretrained-select");
+  
+  if (!gSelect || !dSelect) return;
+  
+  // 기존 옵션 초기화 (첫 번째 옵션 제외)
+  gSelect.innerHTML = '<option value="">모델을 선택하세요</option>';
+  dSelect.innerHTML = '<option value="">모델을 선택하세요</option>';
+  
+  // 모델 리스트를 순회하며 .pth 파일들을 드롭다운에 추가
+  modelsCache.forEach((model) => {
+    // G 모델 파일들 (G_로 시작하는 파일)
+    model.model_files.forEach((fileName) => {
+      if (fileName.startsWith("G_") && fileName.endsWith(".pth")) {
+        const option = document.createElement("option");
+        const fullPath = `logs/${model.model_id}/${fileName}`;
+        option.value = fullPath;
+        option.textContent = `${model.model_id} - ${fileName}`;
+        gSelect.appendChild(option);
+      }
+      // D 모델 파일들 (D_로 시작하는 파일)
+      if (fileName.startsWith("D_") && fileName.endsWith(".pth")) {
+        const option = document.createElement("option");
+        const fullPath = `logs/${model.model_id}/${fileName}`;
+        option.value = fullPath;
+        option.textContent = `${model.model_id} - ${fileName}`;
+        dSelect.appendChild(option);
+      }
+    });
+  });
+};
+
+// Custom Pretrained 선택 시 사전 학습 모델 그룹 표시/숨김
+document.getElementById("custom-pretrained-select")?.addEventListener("change", (e) => {
+  const pretrainedGroup = document.getElementById("pretrained-model-group");
+  if (pretrainedGroup) {
+    pretrainedGroup.style.display = e.target.value === "true" ? "block" : "none";
+  }
+});
+
+// G 사전 학습 모델 선택 시 경로 업데이트
+document.getElementById("g-pretrained-select")?.addEventListener("change", (e) => {
+  const pathInput = document.getElementById("g-pretrained-path-input");
+  if (pathInput && e.target.value) {
+    pathInput.value = e.target.value;
+  }
+});
+
+// D 사전 학습 모델 선택 시 경로 업데이트
+document.getElementById("d-pretrained-select")?.addEventListener("change", (e) => {
+  const pathInput = document.getElementById("d-pretrained-path-input");
+  if (pathInput && e.target.value) {
+    pathInput.value = e.target.value;
+  }
 });
 
 // 인덱스 파일 선택 시 인덱스 경로 업데이트
@@ -471,6 +532,24 @@ document
       if (form.embedder_model.value.trim().length > 0) {
         formData.append("embedder_model", form.embedder_model.value);
       }
+      if (form.vocoder.value.trim().length > 0) {
+        formData.append("vocoder", form.vocoder.value);
+      }
+      if (form.overtraining_detector.value.trim().length > 0) {
+        formData.append("overtraining_detector", form.overtraining_detector.value === "true");
+      }
+      if (form.custom_pretrained.value.trim().length > 0) {
+        formData.append("custom_pretrained", form.custom_pretrained.value === "true");
+      }
+      // 사전 학습 모델 경로: 드롭다운에서 선택한 값 또는 직접 입력한 값
+      const gPretrainedPath = form.g_pretrained_select?.value || form.g_pretrained_path?.value || "";
+      if (gPretrainedPath.trim().length > 0) {
+        formData.append("g_pretrained_path", gPretrainedPath);
+      }
+      const dPretrainedPath = form.d_pretrained_select?.value || form.d_pretrained_path?.value || "";
+      if (dPretrainedPath.trim().length > 0) {
+        formData.append("d_pretrained_path", dPretrainedPath);
+      }
 
       // multiple 파일들 추가
       const files = form.files.files;
@@ -542,6 +621,12 @@ document
       }
       if (form.f0_autotune.checked) {
         formData.append("f0_autotune", "true");
+      }
+      if (form.f0_autotune_strength.value.trim().length > 0) {
+        formData.append("f0_autotune_strength", form.f0_autotune_strength.value);
+      }
+      if (form.index_rate.value.trim().length > 0) {
+        formData.append("index_rate", form.index_rate.value);
       }
       if (form.embedder_model.value.trim().length > 0) {
         formData.append("embedder_model", form.embedder_model.value);
