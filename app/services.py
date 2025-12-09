@@ -166,6 +166,78 @@ async def train_model(
     model_dir = _logs_dir(model_name)
     logger.info("Training start | model=%s dataset=%s", model_name, dataset)
 
+    # 보컬 분리 수행 (추론과 동일한 방식)
+    logger.info("학습용 오디오 파일 보컬 분리 시작")
+    audio_extensions = {".wav", ".mp3", ".flac", ".m4a", ".ogg"}
+    audio_files = [f for f in dataset.iterdir() if f.is_file() and f.suffix.lower() in audio_extensions]
+    
+    if not audio_files:
+        raise ValueError(f"학습용 오디오 파일을 찾을 수 없습니다: {dataset}")
+    
+    logger.info(f"보컬 분리 대상 파일 수: {len(audio_files)}")
+    
+    # 임시 분리 폴더 생성
+    temp_separation_dir = dataset / "temp_separation"
+    temp_separation_dir.mkdir(exist_ok=True)
+    
+    separation_folders = []  # 정리용
+    
+    try:
+        for audio_file in audio_files:
+            logger.info(f"보컬 분리 중: {audio_file.name}")
+            try:
+                # 보컬 분리 수행
+                separation_result = await separate_vocal_instrumental(
+                    str(audio_file), str(temp_separation_dir)
+                )
+                vocals_path = Path(separation_result["vocals"])
+                
+                if not vocals_path.exists():
+                    logger.warning(f"보컬 분리 실패: {vocals_path} - 원본 파일 사용")
+                    continue
+                
+                # 원본 파일을 보컬 파일로 교체
+                # 원본 파일 확장자 유지
+                original_ext = audio_file.suffix
+                backup_path = audio_file.with_suffix(f".original{original_ext}")
+                
+                # 원본 파일 백업 (안전을 위해)
+                if not backup_path.exists():
+                    shutil.copy2(audio_file, backup_path)
+                
+                # 보컬 파일을 원본 파일 위치로 복사
+                shutil.copy2(vocals_path, audio_file)
+                logger.info(f"보컬 파일로 교체 완료: {audio_file.name}")
+                
+                # 분리 폴더 기록 (나중에 정리)
+                separation_folder = vocals_path.parent
+                if separation_folder not in separation_folders:
+                    separation_folders.append(separation_folder)
+                
+            except Exception as e:
+                logger.error(f"보컬 분리 실패 (원본 파일 사용): {audio_file.name} - {e}")
+                # 보컬 분리 실패 시 원본 파일 그대로 사용
+        
+        logger.info("학습용 오디오 파일 보컬 분리 완료")
+        
+    finally:
+        # 임시 분리 폴더 정리
+        if temp_separation_dir.exists():
+            try:
+                await _run_blocking(shutil.rmtree, temp_separation_dir)
+                logger.info(f"임시 분리 폴더 삭제 완료: {temp_separation_dir}")
+            except Exception as e:
+                logger.warning(f"임시 분리 폴더 삭제 실패: {temp_separation_dir} - {e}")
+        
+        # 각 파일의 분리 폴더 정리
+        for sep_folder in separation_folders:
+            if sep_folder.exists() and sep_folder.is_dir():
+                try:
+                    await _run_blocking(shutil.rmtree, sep_folder)
+                    logger.debug(f"분리 폴더 삭제 완료: {sep_folder}")
+                except Exception as e:
+                    logger.warning(f"분리 폴더 삭제 실패: {sep_folder} - {e}")
+
     # prerequisites, preprocess, extract, train 스크립트를 순차 실행
     await _run_blocking(run_prerequisites_script, True, True, True)
 
