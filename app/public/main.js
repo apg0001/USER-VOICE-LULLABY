@@ -618,11 +618,19 @@ const renderJobsTable = (jobs) => {
       running: "#f59e0b",
       completed: "#10b981",
       failed: "#ef4444",
+      cancelled: "#6b7280",
     };
     
-    const progress = job.progress 
-      ? `${job.progress.current_epoch}/${job.progress.total_epoch} (${job.progress.progress_percent}%)`
-      : "-";
+    // 진행률 표시 (안전하게 처리)
+    let progress = "-";
+    if (job.progress && typeof job.progress === "object") {
+      const currentEpoch = job.progress.current_epoch ?? 0;
+      const totalEpoch = job.progress.total_epoch ?? 0;
+      const progressPercent = job.progress.progress_percent ?? 0;
+      if (totalEpoch > 0) {
+        progress = `${currentEpoch}/${totalEpoch} (${progressPercent}%)`;
+      }
+    }
     
     const result = job.result ? JSON.stringify(job.result).substring(0, 100) + (JSON.stringify(job.result).length > 100 ? "..." : "") : "-";
     const error = job.error || "-";

@@ -71,16 +71,17 @@ python -m app --host 0.0.0.0 --port 8000
 
 ### 1) AsyncJobQueue
 
-- `app/task_queue.py`에 정의된 **단일 워커 FIFO 큐**입니다.
-- 내부적으로 `asyncio.Queue`를 사용하며, 하나의 워커 코루틴이 큐에서 작업을 꺼내 순차 실행합니다.
+- `app/task_queue.py`에 정의된 **다중 워커 FIFO 큐**입니다.
+- 내부적으로 `asyncio.Queue`를 사용하며, 리소스 상태에 따라 동적으로 결정된 여러 워커가 큐에서 작업을 꺼내 동시 실행합니다.
 - 각 작업은 `(코루틴 함수, args, kwargs, future)` 형태로 저장되고, 완료 시 해당 `future`에 결과가 설정됩니다.
+- **모든 요청은 큐에 추가되며 거부되지 않습니다.** 리소스 상태에 따라 동시 실행 가능한 작업 수가 결정됩니다.
 
 핵심 사용 예:
 
 ```python
-queue = AsyncJobQueue("train")
-await queue.start()           # 워커 시작
-result = await queue.enqueue( # 작업 등록 + 완료까지 대기
+queue = AsyncJobQueue("train", resource_monitor=monitor, max_workers=4)
+await queue.start()           # 워커 시작 (리소스 상태에 따라 워커 수 결정)
+job_id = queue.enqueue_async( # 작업 등록 (즉시 job_id 반환)
     train_model,
     model_name="foo",
     dataset_path="...",
@@ -90,34 +91,37 @@ result = await queue.enqueue( # 작업 등록 + 완료까지 대기
 ### 2) FastAPI와의 연동
 
 - `app/main.py`에서 다음 두 개의 큐를 사용합니다.
-  - `train_queue = AsyncJobQueue("train")`
-  - `inference_queue = AsyncJobQueue("inference")`
+  - `train_queue = AsyncJobQueue("train", resource_monitor=monitor, max_workers=4)`
+  - `inference_queue = AsyncJobQueue("inference", resource_monitor=monitor, max_workers=4)`
 - 애플리케이션 시작 시(`startup` 이벤트) 두 큐의 워커를 시작하고, 종료 시(`shutdown`) 워커를 정리합니다.
-- `/train`, `/train-files` 요청은 `train_queue.enqueue(train_model, ...)`로 들어가고,
-  `/inference`, `/inference-files` 요청은 `inference_queue.enqueue(run_inference, ...)`로 들어갑니다.
-- 각 HTTP 요청 핸들러는 **큐 안에서 작업이 끝날 때까지 `await`** 한 뒤, 그 결과를 응답으로 반환합니다.
+- `/train` 요청은 `train_queue.enqueue_async(...)`로 들어가고,
+  `/inference` 요청은 `inference_queue.enqueue_async(...)`로 들어갑니다.
+- 각 HTTP 요청 핸들러는 **작업을 큐에 등록하고 즉시 `job_id`를 반환**합니다. 실제 작업은 백그라운드에서 실행됩니다.
 
 이 방식의 장점:
 
-- **동시 요청이 들어와도 실제 학습/추론은 한 번에 하나만 실행**되므로, GPU/CPU 사용량을 예측하기 쉽고 안정적입니다.
+- **리소스 상태에 따라 동시에 여러 작업을 실행**할 수 있어 효율적입니다.
+- **모든 요청이 큐에 추가되므로 거부되지 않습니다.** 리소스가 부족하면 대기 후 실행됩니다.
 - 헬스체크에서 각 큐의 `running` / `pending` 값을 확인해 **현재 몇 개의 작업이 처리/대기 중인지 바로 파악**할 수 있습니다.
+- 작업 실패 시 자동 재시도(최대 3회)가 수행됩니다.
 
 ## API 요약
 
 ### 주요 엔드포인트
 - `GET /` – 헬스체크 및 시스템/큐 상태 조회
-- `POST /train` – 전처리 → 특징 추출 → 학습 파이프라인 실행
-- `POST /inference` – 학습된 모델(.pth)과 선택적 인덱스로 음성 변환
-- `POST /train-files` – 파일 업로드 기반 학습 요청 (모든 파라미터 지원)
-- `POST /inference-files` – 파일 업로드 기반 추론 요청 (모든 파라미터 지원)
+- `POST /train` – 파일 업로드 기반 학습 요청 (모든 파라미터 지원)
+- `POST /inference` – 파일 업로드 기반 추론 요청 (모든 파라미터 지원)
 - `GET /jobs/{queue_name}` – 큐에 있는 모든 작업 리스트 조회
 - `GET /jobs/{queue_name}/{job_id}` – 특정 작업 상태 조회 (진행률 포함)
+- `DELETE /jobs/{queue_name}/{job_id}` – 작업 취소
 - `GET /models` – 학습된 모델 리스트 조회
+- `DELETE /models/{model_id}` – 모델 삭제
 - `GET /outputs` – 추론 결과 리스트 조회
 - `GET /outputs/{output_id}/download` – 추론 결과 파일 다운로드
-- `GET /ui` – `/train`, `/inference`를 바로 호출할 수 있는 정적 HTML 콘솔
+- `DELETE /outputs/{output_id}` – 추론 결과 파일 삭제
+- `GET /ui` – 웹 기반 콘솔 UI
 
-### 학습 파라미터 (`/train-files`)
+### 학습 파라미터 (`POST /train`)
 - `sample_rate`: 샘플레이트 (기본: 40000)
 - `total_epoch`: 총 epoch 수 (기본: 200)
 - `batch_size`: 배치 크기 (기본: 4)
@@ -128,7 +132,7 @@ result = await queue.enqueue( # 작업 등록 + 완료까지 대기
 - `g_pretrained_path`: G 모델 사전 학습 경로 (Custom Pretrained 활성화 시)
 - `d_pretrained_path`: D 모델 사전 학습 경로 (Custom Pretrained 활성화 시)
 
-### 추론 파라미터 (`/inference-files`)
+### 추론 파라미터 (`POST /inference`)
 - `model_path`: 모델 파일 경로 (.pth) - 필수
 - `index_path`: 인덱스 파일 경로 (.index) - 선택
 - `output_dir`: 출력 디렉토리 (기본: outputs)
@@ -148,7 +152,7 @@ result = await queue.enqueue( # 작업 등록 + 완료까지 대기
 2. 큐는 단일 워커로 순차 실행되므로 GPU/CPU 사용량을 예측하기 쉽고, 헬스체크(`/`) 응답에서 `running/pending` 상태를 모니터링할 수 있다.
 3. 실제 연산은 `app/services.py`에 정의된 `train_model`, `run_inference`가 담당한다.
 
-### 학습 흐름 (`/train`, `/train-files`)
+### 학습 흐름 (`POST /train`)
 1. **파일 업로드가 있는 경우**  
    - 업로드된 오디오는 `applio/datasets/<모델명>/audio_XXX.ext`로 저장된다.  
    - 이미 데이터셋 폴더가 있는 경우에는 해당 경로를 직접 지정할 수 있다.
@@ -167,7 +171,7 @@ result = await queue.enqueue( # 작업 등록 + 완료까지 대기
    - 모델 정보(파라미터, 파일 경로 등)가 `model_info.json`으로 저장된다.
 5. API 응답에는 모델명, 로그 디렉터리, 학습 파라미터 요약이 포함된다. 최종 모델(.pth)은 `applio/logs/<모델명>`에 존재한다.
 
-### 추론 흐름 (`/inference`, `/inference-files`)
+### 추론 흐름 (`POST /inference`)
 1. 입력 오디오는 `applio/datasets/target_audio/temp_inference_<UUID>.wav`로 저장된다.
 2. `run_inference`는 다음 단계를 순차 실행한다.  
    - **보컬/반주 분리**: spleeter로 `applio/output/temp_inference_<UUID>/{vocals,accompaniment}.wav` 생성  
@@ -180,7 +184,9 @@ result = await queue.enqueue( # 작업 등록 + 완료까지 대기
 ## 주요 기능
 
 ### 작업 큐 및 재시도
-- 모든 작업은 비동기 큐에서 순차 실행됩니다.
+- 모든 작업은 비동기 큐에서 실행됩니다.
+- 리소스 상태(CPU, 메모리, GPU)에 따라 동시에 여러 작업을 실행할 수 있습니다 (최대 4개).
+- 모든 요청은 큐에 추가되며 거부되지 않습니다. 리소스가 부족하면 대기 후 실행됩니다.
 - 작업 실패 시 자동으로 최대 3회 재시도합니다 (지수 백오프 적용).
 - 재시도 실패 시 클라이언트에 오류를 반환합니다.
 
@@ -193,11 +199,19 @@ result = await queue.enqueue( # 작업 등록 + 완료까지 대기
 - 모델 리스트 조회 시 모델 이름, 파라미터, 파일 경로 등 상세 정보를 확인할 수 있습니다.
 - UI에서 모델을 선택하여 추론에 바로 사용할 수 있습니다.
 
+### 작업 취소
+- `DELETE /jobs/{queue_name}/{job_id}` 엔드포인트로 작업을 취소할 수 있습니다.
+- PENDING 상태인 작업은 즉시 취소됩니다.
+- RUNNING 상태인 작업은 취소 플래그가 설정되며, 작업 완료 시 취소 상태로 표시됩니다.
+- UI에서도 작업 리스트의 취소 버튼을 통해 작업을 취소할 수 있습니다.
+
 ### UI 기능
 - 웹 기반 콘솔(`GET /ui`)에서 모든 기능을 사용할 수 있습니다.
 - 학습 및 추론의 모든 파라미터를 UI에서 입력할 수 있습니다.
-- 사전 학습 모델 경로를 드롭다운으로 선택할 수 있습니다.
+- 사전 학습 모델 경로를 드롭다운으로 선택할 수 있습니다 (절대 경로 사용).
 - 작업 리스트를 표로 확인하고 자동 새로고침이 가능합니다.
+- 작업 취소 버튼을 통해 실행 중인 작업을 취소할 수 있습니다.
+- 모델 및 출력 파일은 테이블에서 직접 삭제할 수 있습니다.
 
 ## 기타
 

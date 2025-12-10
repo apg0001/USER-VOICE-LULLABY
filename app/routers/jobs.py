@@ -14,7 +14,12 @@ router = APIRouter()
 
 def _get_training_progress(job, queue_name: str) -> dict | None:
     """학습 작업의 진행률을 계산합니다."""
-    if queue_name != "train" or job.status.value != "running":
+    # 학습 큐가 아니거나 실행 중이 아닌 경우 진행률 계산 안 함
+    if queue_name != "train":
+        return None
+    
+    # running 상태가 아니면 진행률 계산 안 함 (단, pending 상태는 0%로 표시 가능)
+    if job.status.value not in ("running", "pending"):
         return None
     
     # job.metadata에서 model_name과 total_epoch 확인
@@ -37,6 +42,7 @@ def _get_training_progress(job, queue_name: str) -> dict | None:
         )
         
         if not checkpoint_files:
+            # 체크포인트 파일이 없으면 0%로 표시
             return {"current_epoch": 0, "total_epoch": total_epoch, "progress_percent": 0.0}
         
         latest_checkpoint = checkpoint_files[0]
