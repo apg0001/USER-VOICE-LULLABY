@@ -180,6 +180,7 @@ const renderModelsTable = (models) => {
         <tr>
           <th>모델 ID</th>
           <th>모델 이름</th>
+          <th>설명</th>
           <th>임베더</th>
           <th>샘플레이트</th>
           <th>Epoch</th>
@@ -201,18 +202,21 @@ const renderModelsTable = (models) => {
     const totalEpoch = model.total_epoch || "-";
     const vocoder = model.vocoder || "-";
     
-    // 절대 경로 표시 (없으면 상대 경로 파일명)
+    // 절대 경로 표시 (여러 개일 경우 줄바꿈으로 표시)
     const modelFilesAbsolute = model.model_files_absolute && model.model_files_absolute.length > 0
-      ? model.model_files_absolute.join(", ")
-      : model.model_files.map(f => f.split("/").pop()).join(", ") || "-";
+      ? model.model_files_absolute.join("<br>")
+      : model.model_files.map(f => f.split("/").pop()).join("<br>") || "-";
     const indexFilesAbsolute = model.index_files_absolute && model.index_files_absolute.length > 0
-      ? model.index_files_absolute.join(", ")
-      : model.index_files.map(f => f.split("/").pop()).join(", ") || "-";
+      ? model.index_files_absolute.join("<br>")
+      : model.index_files.map(f => f.split("/").pop()).join("<br>") || "-";
+    
+    const modelDescription = model.model_description || "-";
     
     html += `
       <tr>
         <td><strong>${model.model_id}</strong></td>
         <td>${modelName}</td>
+        <td style="max-width: 200px; word-break: break-word; white-space: pre-wrap;">${modelDescription}</td>
         <td>${embedder}</td>
         <td>${sampleRate}</td>
         <td>${totalEpoch}</td>
