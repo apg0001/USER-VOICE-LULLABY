@@ -34,41 +34,54 @@ def _get_training_progress(job, queue_name: str) -> dict | None:
         if not model_dir.exists():
             return None
         
-        # 최신 체크포인트 파일 찾기 (G_*.pth)
-        checkpoint_files = sorted(
-            model_dir.glob("G_*.pth"),
-            key=lambda f: f.stat().st_mtime,
-            reverse=True
-        )
+        # best_epoch 파일 찾기 (*_best_epoch.pth)
+        best_epoch_files = list(model_dir.glob("*_best_epoch.pth"))
         
-        if not checkpoint_files:
-            # 체크포인트 파일이 없으면 0%로 표시
-            return {"current_epoch": 0, "total_epoch": total_epoch, "progress_percent": 0.0}
-        
-        latest_checkpoint = checkpoint_files[0]
-        
-        # 체크포인트 파일명에서 epoch 추출 시도
-        # G_2333333.pth (save_only_latest인 경우) 또는 G_12345.pth (global_step)
-        # 또는 model_name_50e_1000s.pth 형식
         current_epoch = 0
         
-        # 체크포인트 파일을 로드하여 epoch 확인
-        try:
-            import torch
-            checkpoint = torch.load(str(latest_checkpoint), map_location="cpu", weights_only=True)
-            # checkpoint의 iteration이 epoch일 수 있음 (save_checkpoint에서 epoch를 iteration으로 저장)
-            # 하지만 정확하지 않을 수 있으므로 파일명에서도 시도
-            if "iteration" in checkpoint:
-                # iteration이 epoch일 가능성이 높음 (train.py의 save_checkpoint 참고)
-                current_epoch = checkpoint.get("iteration", 0)
-        except Exception:
-            # 체크포인트 로드 실패 시 파일명에서 추출 시도
-            filename = latest_checkpoint.name
+        if best_epoch_files:
+            # best_epoch 파일이 있으면 파일명에서 epoch 추출
+            # 예: model_name_20e_900s_best_epoch.pth -> 20
+            latest_best_epoch = sorted(
+                best_epoch_files,
+                key=lambda f: f.stat().st_mtime,
+                reverse=True
+            )[0]
+            
+            filename = latest_best_epoch.name
+            # 파일명에서 epoch 추출 (예: model_name_20e_900s_best_epoch.pth)
             epoch_match = re.search(r'(\d+)e', filename)
             if epoch_match:
                 current_epoch = int(epoch_match.group(1))
-            else:
-                current_epoch = 0
+        else:
+            # best_epoch 파일이 없으면 G_*.pth 파일에서 시도
+            checkpoint_files = sorted(
+                model_dir.glob("G_*.pth"),
+                key=lambda f: f.stat().st_mtime,
+                reverse=True
+            )
+            
+            if not checkpoint_files:
+                # 체크포인트 파일이 없으면 0%로 표시
+                return {"current_epoch": 0, "total_epoch": total_epoch, "progress_percent": 0.0}
+            
+            latest_checkpoint = checkpoint_files[0]
+            
+            # 체크포인트 파일을 로드하여 epoch 확인
+            try:
+                import torch
+                checkpoint = torch.load(str(latest_checkpoint), map_location="cpu", weights_only=True)
+                # checkpoint의 iteration이 epoch일 수 있음
+                if "iteration" in checkpoint:
+                    current_epoch = checkpoint.get("iteration", 0)
+            except Exception:
+                # 체크포인트 로드 실패 시 파일명에서 추출 시도
+                filename = latest_checkpoint.name
+                epoch_match = re.search(r'(\d+)e', filename)
+                if epoch_match:
+                    current_epoch = int(epoch_match.group(1))
+                else:
+                    current_epoch = 0
         
         # total_epoch와 비교하여 진행률 계산
         progress_percent = min((current_epoch / total_epoch * 100) if total_epoch > 0 else 0, 100.0)
