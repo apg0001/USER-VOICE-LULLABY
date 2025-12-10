@@ -43,6 +43,7 @@ class AsyncJobQueue:
         self._max_workers = max_workers
         self._resource_monitor = resource_monitor
         self._active_jobs: set[str] = set()  # 현재 실행 중인 job_id 집합
+        self._active_tasks: dict[str, asyncio.Task] = {}  # job_id -> 실행 중인 Task
         self._jobs: dict[str, Job] = {}  # job_id -> Job
 
     @property
@@ -201,6 +202,16 @@ class AsyncJobQueue:
         # 생성 시간 역순으로 정렬 (최신 작업이 먼저)
         return sorted(jobs, key=lambda x: x["created_at"], reverse=True)
 
+    async def _wait_for_cancel(self, job_id: str) -> None:
+        """작업 취소를 기다리는 헬퍼 함수"""
+        job = self._jobs.get(job_id)
+        if not job:
+            return
+        
+        # 취소 플래그가 설정될 때까지 대기
+        while not job.cancelled:
+            await asyncio.sleep(0.5)  # 0.5초마다 확인
+    
     def stats(self) -> dict[str, Any]:
         """현재 큐 상태를 딕셔너리로 반환한다."""
         return {
@@ -280,9 +291,39 @@ class AsyncJobQueue:
                     
                     # 실행 중 취소 확인을 위한 태스크 래핑
                     task = asyncio.create_task(coroutine_func(*args, **kwargs))
+                    self._active_tasks[job_id] = task  # 실행 중인 태스크 추적
+                    
+                    # 취소 확인 태스크 생성
+                    cancel_check_task = asyncio.create_task(self._wait_for_cancel(job_id))
                     
                     try:
-                        result = await task
+                        # 태스크와 취소 확인을 동시에 대기
+                        done, pending = await asyncio.wait(
+                            {task, cancel_check_task},
+                            return_when=asyncio.FIRST_COMPLETED
+                        )
+                        
+                        # 취소 확인 태스크가 먼저 완료되면 작업 취소
+                        if cancel_check_task in done and job.cancelled:
+                            task.cancel()
+                            worker_logger.info(f"작업 취소 요청 감지, 태스크 취소 중 | queue={self.name} | job_id={job_id}")
+                        
+                        # 나머지 태스크 취소
+                        for p in pending:
+                            p.cancel()
+                            try:
+                                await p
+                            except asyncio.CancelledError:
+                                pass
+                        
+                        # 작업 결과 가져오기
+                        if task.done() and not task.cancelled():
+                            result = await task
+                        elif job.cancelled:
+                            raise asyncio.CancelledError()
+                        else:
+                            result = await task
+                            
                     except asyncio.CancelledError:
                         # 작업이 취소된 경우
                         if job.cancelled:
@@ -293,6 +334,9 @@ class AsyncJobQueue:
                             if not future.done():
                                 future.cancel()
                         raise
+                    finally:
+                        # 태스크 추적에서 제거
+                        self._active_tasks.pop(job_id, None)
                     
                     # 실행 중 취소 플래그 확인 (작업 완료 후)
                     if job.cancelled:
