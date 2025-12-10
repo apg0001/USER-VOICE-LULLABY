@@ -41,6 +41,7 @@ class TrainingService:
         custom_pretrained: bool = False,
         g_pretrained_path: Optional[str] = None,
         d_pretrained_path: Optional[str] = None,
+        model_description: Optional[str] = None,
     ) -> dict:
         """모델 학습 실행"""
         return await _train_model(
@@ -55,6 +56,7 @@ class TrainingService:
             custom_pretrained=custom_pretrained,
             g_pretrained_path=g_pretrained_path,
             d_pretrained_path=d_pretrained_path,
+            model_description=model_description,
         )
 
     async def train_from_request(self, request: TrainFilesRequest) -> dict:
@@ -71,4 +73,5 @@ class TrainingService:
             custom_pretrained=request.custom_pretrained,
             g_pretrained_path=request.g_pretrained_path,
             d_pretrained_path=request.d_pretrained_path,
+            model_description=request.model_description,
         )

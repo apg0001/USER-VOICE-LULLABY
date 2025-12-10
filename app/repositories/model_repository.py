@@ -65,6 +65,7 @@ class ModelRepository:
                         sample_rate=model_info_json.get("sample_rate") if model_info_json else None,
                         total_epoch=model_info_json.get("total_epoch") if model_info_json else None,
                         vocoder=model_info_json.get("vocoder") if model_info_json else None,
+                        model_description=model_info_json.get("model_description") if model_info_json else None,
                         model_files_absolute=pth_files_absolute,
                         index_files_absolute=index_files_absolute,
                     )

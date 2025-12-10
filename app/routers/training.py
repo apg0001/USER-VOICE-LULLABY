@@ -33,6 +33,7 @@ async def start_training(
     custom_pretrained: Optional[bool] = Form(None),
     g_pretrained_path: Optional[str] = Form(None),
     d_pretrained_path: Optional[str] = Form(None),
+    model_description: Optional[str] = Form(None),
     training_service: TrainingService = Depends(get_training_service),
     train_queue: AsyncJobQueue = Depends(get_train_queue),
     file_repo: FileRepository = Depends(get_file_repository),
@@ -85,6 +86,7 @@ async def start_training(
             custom_pretrained=custom_pretrained,
             g_pretrained_path=g_pretrained_path,
             d_pretrained_path=d_pretrained_path,
+            model_description=model_description,
         )
 
         # 비동기 작업 등록

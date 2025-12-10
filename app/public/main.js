@@ -473,6 +473,10 @@ document
       if (dPretrainedPath.trim().length > 0) {
         formData.append("d_pretrained_path", dPretrainedPath);
       }
+      // 모델 설명 추가
+      if (form.model_description && form.model_description.value.trim().length > 0) {
+        formData.append("model_description", form.model_description.value.trim());
+      }
 
       // multiple 파일들 추가
       const files = form.files.files;

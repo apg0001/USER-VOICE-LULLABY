@@ -20,6 +20,7 @@ class TrainFilesRequest(BaseModel):
     custom_pretrained: bool = False
     g_pretrained_path: Optional[str] = None
     d_pretrained_path: Optional[str] = None
+    model_description: Optional[str] = None
 
 
 class InferenceFilesRequest(BaseModel):

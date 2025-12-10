@@ -147,6 +147,7 @@ async def train_model(
     custom_pretrained: bool = False,
     g_pretrained_path: str = None,
     d_pretrained_path: str = None,
+    model_description: Optional[str] = None,
 ) -> dict:
     defaults = TRAINING_DEFAULTS
     sample_rate = sample_rate or defaults.sample_rate
@@ -324,6 +325,7 @@ async def train_model(
         "vocoder": vocoder,
         "model_files_absolute": pth_files_absolute,
         "index_files_absolute": index_files_absolute,
+        "model_description": model_description,
     }
     
     import json
