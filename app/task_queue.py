@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Awaitable, Callable
 from uuid import uuid4
@@ -45,6 +45,7 @@ class AsyncJobQueue:
         self._active_jobs: set[str] = set()  # 현재 실행 중인 job_id 집합
         self._active_tasks: dict[str, asyncio.Task] = {}  # job_id -> 실행 중인 Task
         self._jobs: dict[str, Job] = {}  # job_id -> Job
+        self._cleanup_task: asyncio.Task | None = None  # 정리 작업 태스크
 
     @property
     def pending(self) -> int:
@@ -75,6 +76,11 @@ class AsyncJobQueue:
                 asyncio.create_task(self._worker_loop()) 
                 for _ in range(num_workers)
             ]
+        
+        # 정리 작업 태스크 시작 (아직 시작되지 않았거나 완료된 경우)
+        if self._cleanup_task is None or self._cleanup_task.done():
+            from app.settings import JOB_RETENTION_DAYS
+            self._cleanup_task = asyncio.create_task(self._cleanup_loop(JOB_RETENTION_DAYS))
 
     async def stop(self) -> None:
         """모든 워커 중지"""
@@ -83,6 +89,13 @@ class AsyncJobQueue:
             with contextlib.suppress(asyncio.CancelledError):
                 await worker
         self._workers = []
+        
+        # 정리 작업 태스크 중지
+        if self._cleanup_task and not self._cleanup_task.done():
+            self._cleanup_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._cleanup_task
+        self._cleanup_task = None
 
     def enqueue_async(
         self, coroutine_func: Callable[..., Awaitable[Any]], *args, **kwargs
@@ -211,6 +224,81 @@ class AsyncJobQueue:
         # 취소 플래그가 설정될 때까지 대기
         while not job.cancelled:
             await asyncio.sleep(0.5)  # 0.5초마다 확인
+    
+    def cleanup_old_jobs(self, retention_days: int) -> int:
+        """오래된 작업을 삭제합니다.
+        
+        Args:
+            retention_days: 보관 기간 (일)
+            
+        Returns:
+            삭제된 작업 수
+        """
+        from .logging_config import get_logger
+        logger = get_logger(f"{__name__}.{self.name}")
+        
+        if retention_days <= 0:
+            return 0
+        
+        cutoff_date = datetime.now() - timedelta(days=retention_days)
+        deleted_count = 0
+        job_ids_to_delete = []
+        
+        for job_id, job in list(self._jobs.items()):
+            # 실행 중이거나 대기 중인 작업은 삭제하지 않음
+            if job.status in (JobStatus.PENDING, JobStatus.RUNNING):
+                continue
+            
+            # 완료 시간이 있으면 완료 시간 기준, 없으면 생성 시간 기준
+            reference_time = job.completed_at if job.completed_at else job.created_at
+            
+            if reference_time < cutoff_date:
+                job_ids_to_delete.append(job_id)
+        
+        # 작업 삭제
+        for job_id in job_ids_to_delete:
+            try:
+                del self._jobs[job_id]
+                self._active_jobs.discard(job_id)
+                self._active_tasks.pop(job_id, None)
+                deleted_count += 1
+            except Exception as e:
+                logger.warning(f"작업 삭제 실패 | job_id={job_id} | error={e}")
+        
+        if deleted_count > 0:
+            logger.info(
+                f"오래된 작업 삭제 완료 | queue={self.name} | "
+                f"deleted_count={deleted_count} | retention_days={retention_days}"
+            )
+        
+        return deleted_count
+    
+    async def _cleanup_loop(self, retention_days: int) -> None:
+        """정리 작업을 주기적으로 실행하는 루프"""
+        from .logging_config import get_logger
+        logger = get_logger(f"{__name__}.{self.name}")
+        
+        # 1시간마다 정리 작업 실행
+        cleanup_interval = 3600  # 1시간 (초)
+        
+        try:
+            while True:
+                await asyncio.sleep(cleanup_interval)
+                try:
+                    deleted_count = self.cleanup_old_jobs(retention_days)
+                    if deleted_count > 0:
+                        logger.debug(
+                            f"정기 정리 작업 완료 | queue={self.name} | "
+                            f"deleted_count={deleted_count}"
+                        )
+                except Exception as e:
+                    logger.error(
+                        f"정리 작업 중 오류 발생 | queue={self.name} | error={e}",
+                        exc_info=True
+                    )
+        except asyncio.CancelledError:
+            logger.debug(f"정리 작업 루프 취소됨 | queue={self.name}")
+            raise
     
     def stats(self) -> dict[str, Any]:
         """현재 큐 상태를 딕셔너리로 반환한다."""

@@ -91,3 +91,6 @@ class InferenceDefaults:
 
 TRAINING_DEFAULTS = TrainingDefaults()
 INFERENCE_DEFAULTS = InferenceDefaults()
+
+# 큐 작업 내역 보관 기간 (일)
+JOB_RETENTION_DAYS = int(os.getenv("JOB_RETENTION_DAYS", "7"))  # 기본값: 7일
