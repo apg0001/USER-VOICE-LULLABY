@@ -137,3 +137,29 @@ async def get_job_status(
     
     return JobStatusResponse(**result)
 
+
+@router.delete("/jobs/{queue_name}/{job_id}")
+async def cancel_job(
+    queue_name: str,
+    job_id: str,
+    train_queue: AsyncJobQueue = Depends(get_train_queue),
+    inference_queue: AsyncJobQueue = Depends(get_inference_queue),
+):
+    """작업을 취소합니다."""
+    queue = None
+    if queue_name == "train":
+        queue = train_queue
+    elif queue_name == "inference":
+        queue = inference_queue
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown queue: {queue_name}")
+    
+    success = queue.cancel_job(job_id)
+    if not success:
+        raise HTTPException(
+            status_code=404, 
+            detail="Job not found or cannot be cancelled (job may be already completed, failed, or cancelled)"
+        )
+    
+    return {"status": "cancelled", "job_id": job_id}
+

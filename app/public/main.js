@@ -585,6 +585,7 @@ document
 // 작업 리스트를 테이블로 표시
 const renderJobsTable = (jobs) => {
   const container = document.getElementById("jobs-list-container");
+  const queueName = document.getElementById("queue-select").value;
   
   if (!jobs || jobs.length === 0) {
     container.innerHTML = '<div class="empty-state">작업이 없습니다</div>';
@@ -603,6 +604,7 @@ const renderJobsTable = (jobs) => {
           <th>완료 시간</th>
           <th>결과</th>
           <th>오류</th>
+          <th>작업</th>
         </tr>
       </thead>
       <tbody>
@@ -625,6 +627,12 @@ const renderJobsTable = (jobs) => {
     const result = job.result ? JSON.stringify(job.result).substring(0, 100) + (JSON.stringify(job.result).length > 100 ? "..." : "") : "-";
     const error = job.error || "-";
     
+    // 취소 가능한 상태인지 확인 (pending 또는 running)
+    const canCancel = status === "pending" || status === "running";
+    const cancelButton = canCancel 
+      ? `<button class="btn btn-danger" onclick="cancelJob('${queueName}', '${job.job_id}')" style="padding: 4px 8px; font-size: 0.8rem;">취소</button>`
+      : "-";
+    
     html += `
       <tr style="border-left: 4px solid ${statusColors[status] || "#6b7280"}">
         <td><strong>${job.job_id.substring(0, 8)}...</strong></td>
@@ -635,6 +643,7 @@ const renderJobsTable = (jobs) => {
         <td>${formatDate(job.completed_at)}</td>
         <td style="font-size: 0.8rem; max-width: 200px; word-break: break-all;">${result}</td>
         <td style="font-size: 0.8rem; max-width: 200px; word-break: break-all; color: #ef4444;">${error}</td>
+        <td>${cancelButton}</td>
       </tr>
     `;
   });
@@ -690,6 +699,33 @@ document.getElementById("auto-refresh-checkbox").addEventListener("change", (eve
     }
   }
 });
+
+// 작업 취소 함수
+window.cancelJob = async (queueName, jobId) => {
+  if (!confirm(`작업을 취소하시겠습니까? (Job ID: ${jobId.substring(0, 8)}...)`)) {
+    return;
+  }
+  
+  try {
+    const response = await fetch(`/jobs/${queueName}/${jobId}`, {
+      method: "DELETE",
+    });
+    
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.detail || "작업 취소 실패");
+    }
+    
+    alert("작업이 취소되었습니다.");
+    
+    // 취소 후 리스트 새로고침
+    setTimeout(() => {
+      refreshJobsList();
+    }, 500);
+  } catch (error) {
+    alert(`작업 취소 실패: ${error.message || error}`);
+  }
+};
 
 // 페이지 로드 시 초기 조회
 refreshJobsList();

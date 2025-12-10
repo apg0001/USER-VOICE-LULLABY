@@ -15,6 +15,7 @@ class JobStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 @dataclass
@@ -29,6 +30,7 @@ class Job:
     error: str | None = None
     future: asyncio.Future | None = None
     metadata: dict[str, Any] = field(default_factory=dict)  # 작업 메타데이터 (예: model_name, total_epoch)
+    cancelled: bool = False  # 취소 플래그
 
 
 class AsyncJobQueue:
@@ -134,6 +136,36 @@ class AsyncJobQueue:
             "error": job.error,
         }
     
+    def cancel_job(self, job_id: str) -> bool:
+        """작업 취소
+        
+        Returns:
+            bool: 취소 성공 여부
+        """
+        job = self._jobs.get(job_id)
+        if job is None:
+            return False
+        
+        # 이미 완료된 작업은 취소 불가
+        if job.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
+            return False
+        
+        # PENDING 상태인 작업: 큐에서 제거
+        if job.status == JobStatus.PENDING:
+            job.status = JobStatus.CANCELLED
+            job.completed_at = datetime.now()
+            job.error = "작업이 취소되었습니다."
+            if job.future and not job.future.done():
+                job.future.cancel()
+            return True
+        
+        # RUNNING 상태인 작업: 취소 플래그 설정
+        if job.status == JobStatus.RUNNING:
+            job.cancelled = True
+            return True
+        
+        return False
+    
     def list_all_jobs(self) -> list[dict[str, Any]]:
         """모든 작업 리스트 반환"""
         jobs = []
@@ -197,6 +229,17 @@ class AsyncJobQueue:
             
             while retry_count <= max_retries:
                 try:
+                    # 취소 확인 (큐에서 가져온 후 취소 상태 확인)
+                    if job.status == JobStatus.CANCELLED or job.cancelled:
+                        if job.status != JobStatus.CANCELLED:
+                            job.status = JobStatus.CANCELLED
+                            job.completed_at = datetime.now()
+                            job.error = "작업이 취소되었습니다."
+                        worker_logger.info(f"작업 취소됨 (대기 중) | queue={self.name} | job_id={job_id}")
+                        if not future.done():
+                            future.cancel()
+                        break
+                    
                     self._active_jobs.add(job_id)
                     if retry_count == 0:
                         job.status = JobStatus.RUNNING
@@ -211,7 +254,31 @@ class AsyncJobQueue:
                             f"retry_count={retry_count}/{max_retries}"
                         )
                     
-                    result = await coroutine_func(*args, **kwargs)
+                    # 실행 중 취소 확인을 위한 태스크 래핑
+                    task = asyncio.create_task(coroutine_func(*args, **kwargs))
+                    
+                    try:
+                        result = await task
+                    except asyncio.CancelledError:
+                        # 작업이 취소된 경우
+                        if job.cancelled:
+                            job.status = JobStatus.CANCELLED
+                            job.completed_at = datetime.now()
+                            job.error = "작업이 취소되었습니다."
+                            worker_logger.info(f"작업 취소됨 (실행 중) | queue={self.name} | job_id={job_id}")
+                            if not future.done():
+                                future.cancel()
+                        raise
+                    
+                    # 실행 중 취소 플래그 확인 (작업 완료 후)
+                    if job.cancelled:
+                        job.status = JobStatus.CANCELLED
+                        job.completed_at = datetime.now()
+                        job.error = "작업이 취소되었습니다."
+                        worker_logger.info(f"작업 취소됨 (완료 후 취소 처리) | queue={self.name} | job_id={job_id}")
+                        if not future.done():
+                            future.cancel()
+                        break
                     
                     job.status = JobStatus.COMPLETED
                     job.completed_at = datetime.now()
