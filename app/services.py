@@ -575,18 +575,20 @@ async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) ->
             # 별도 스레드에서 실행하여 TensorFlow 컨텍스트 격리
             def _separate_audio():
                 import tensorflow as tf
-                # TensorFlow Graph 초기화
-                tf.compat.v1.reset_default_graph()
                 
-                try:
-                    separator = Separator("spleeter:2stems")
-                    separator.separate_to_file(input_audio_path, output_dir)
-                finally:
-                    # TensorFlow 세션 정리
+                # 새로운 Graph 컨텍스트에서 실행
+                # reset_default_graph() 대신 명시적으로 새 Graph 생성
+                with tf.Graph().as_default():
                     try:
-                        tf.compat.v1.reset_default_graph()
-                    except Exception:
-                        pass  # 정리 실패는 무시
+                        # 각 작업마다 새로운 Separator 인스턴스 생성
+                        separator = Separator("spleeter:2stems")
+                        separator.separate_to_file(input_audio_path, output_dir)
+                    except Exception as e:
+                        logger.error(
+                            f"보컬 분리 실행 중 오류 | input={input_audio_path} | error={e}",
+                            exc_info=True
+                        )
+                        raise
             
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, _separate_audio)
@@ -596,12 +598,6 @@ async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) ->
                 f"보컬 분리 중 오류 발생 | input={input_audio_path} | error={e}",
                 exc_info=True
             )
-            # TensorFlow Graph 초기화 시도
-            try:
-                import tensorflow as tf
-                tf.compat.v1.reset_default_graph()
-            except Exception:
-                pass
             raise RuntimeError(f"보컬 분리 실패: {str(e)}")
 
     base_name = input_path.stem
