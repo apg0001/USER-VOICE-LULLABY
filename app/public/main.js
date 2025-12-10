@@ -111,24 +111,26 @@ const updatePretrainedModelDropdowns = () => {
   
   // 모델 리스트를 순회하며 .pth 파일들을 드롭다운에 추가
   modelsCache.forEach((model) => {
-    // G 모델 파일들 (G_로 시작하는 파일)
-    model.model_files.forEach((fileName) => {
-      if (fileName.startsWith("G_") && fileName.endsWith(".pth")) {
-        const option = document.createElement("option");
-        const fullPath = `logs/${model.model_id}/${fileName}`;
-        option.value = fullPath;
-        option.textContent = `${model.model_id} - ${fileName}`;
-        gSelect.appendChild(option);
-      }
-      // D 모델 파일들 (D_로 시작하는 파일)
-      if (fileName.startsWith("D_") && fileName.endsWith(".pth")) {
-        const option = document.createElement("option");
-        const fullPath = `logs/${model.model_id}/${fileName}`;
-        option.value = fullPath;
-        option.textContent = `${model.model_id} - ${fileName}`;
-        dSelect.appendChild(option);
-      }
-    });
+    // 절대 경로 사용
+    if (model.model_files_absolute && model.model_files_absolute.length > 0) {
+      model.model_files_absolute.forEach((absolutePath) => {
+        const fileName = absolutePath.split(/[/\\]/).pop(); // 파일명만 추출
+        // G 모델 파일들 (G_로 시작하는 파일)
+        if (fileName.startsWith("G_") && fileName.endsWith(".pth")) {
+          const option = document.createElement("option");
+          option.value = absolutePath; // 절대 경로 사용
+          option.textContent = `${model.model_id} - ${fileName}`;
+          gSelect.appendChild(option);
+        }
+        // D 모델 파일들 (D_로 시작하는 파일)
+        if (fileName.startsWith("D_") && fileName.endsWith(".pth")) {
+          const option = document.createElement("option");
+          option.value = absolutePath; // 절대 경로 사용
+          option.textContent = `${model.model_id} - ${fileName}`;
+          dSelect.appendChild(option);
+        }
+      });
+    }
   });
 };
 
