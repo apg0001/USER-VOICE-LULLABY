@@ -483,7 +483,7 @@ document
         formData.append("files", files[i]);
       }
 
-      const response = await fetch("/train-files", {
+      const response = await fetch("/train", {
         method: "POST",
         body: formData,
       });
@@ -552,7 +552,7 @@ document
         formData.append("embedder_model", form.embedder_model.value);
       }
 
-      const response = await fetch("/inference-files", {
+      const response = await fetch("/inference", {
         method: "POST",
         body: formData,
       });

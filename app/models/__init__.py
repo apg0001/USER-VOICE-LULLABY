@@ -1,7 +1,5 @@
 """도메인 모델 정의"""
 from .requests import (
-    TrainRequest,
-    InferenceRequest,
     TrainFilesRequest,
     InferenceFilesRequest,
 )
@@ -15,8 +13,6 @@ from .responses import (
 )
 
 __all__ = [
-    "TrainRequest",
-    "InferenceRequest",
     "TrainFilesRequest",
     "InferenceFilesRequest",
     "HealthResponse",

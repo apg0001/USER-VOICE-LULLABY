@@ -8,10 +8,8 @@ from ..dependencies import (
     get_file_repository,
     get_inference_queue,
     get_inference_service,
-    get_resource_monitor,
 )
-from ..models.requests import InferenceRequest, InferenceFilesRequest
-from ..monitors.resource_monitor import ResourceMonitor
+from ..models.requests import InferenceFilesRequest
 from ..repositories.file_repository import FileRepository
 from ..services.inference_service import InferenceService
 from ..settings import INFERENCE_DEFAULTS
@@ -24,34 +22,6 @@ logger = get_logger(__name__)
 
 @router.post("/inference")
 async def start_inference(
-    payload: InferenceRequest,
-    inference_service: InferenceService = Depends(get_inference_service),
-    inference_queue: AsyncJobQueue = Depends(get_inference_queue),
-    monitor: ResourceMonitor = Depends(get_resource_monitor),
-):
-    """추론 시작 요청 처리"""
-    try:
-        # 비동기 작업 등록 (모든 요청을 큐에 추가, 리소스 확인은 워커에서 수행)
-        job_id = inference_queue.enqueue_async(
-            inference_service.infer,
-            input_audio_path=payload.input_audio_path,
-            model_path=payload.model_path,
-            index_path=payload.index_path,
-            output_dir=payload.output_dir,
-        )
-        return {"status": "queued", "job_id": job_id}
-    except HTTPException:
-        raise
-    except FileNotFoundError as exc:
-        logger.error("Inference request failed: %s", exc)
-        raise HTTPException(status_code=404, detail=str(exc))
-    except Exception as exc:
-        logger.exception("Unexpected inference error")
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.post("/inference-files")
-async def start_inference_files(
     target_audio: UploadFile = File(...),
     model_path: str = Form(...),
     index_path: Optional[str] = Form(None),
@@ -65,9 +35,19 @@ async def start_inference_files(
     inference_service: InferenceService = Depends(get_inference_service),
     inference_queue: AsyncJobQueue = Depends(get_inference_queue),
     file_repo: FileRepository = Depends(get_file_repository),
-    monitor: ResourceMonitor = Depends(get_resource_monitor),
 ):
     """파일 업로드로 추론 시작 요청 처리"""
+    logger.info(f"추론 요청 수신 | model_path={model_path} | index_path={index_path}")
+    
+    # 입력 검증
+    if not target_audio:
+        logger.error("추론 요청 실패: 오디오 파일이 업로드되지 않았습니다")
+        raise HTTPException(status_code=400, detail="오디오 파일을 업로드해야 합니다")
+    
+    if not model_path or not model_path.strip():
+        logger.error("추론 요청 실패: 모델 경로가 제공되지 않았습니다")
+        raise HTTPException(status_code=400, detail="모델 경로를 제공해야 합니다")
+    
     # 기본값 적용 (None인 경우에만)
     output_dir = output_dir if output_dir is not None else "outputs"
     volume_envelope = volume_envelope if volume_envelope is not None else INFERENCE_DEFAULTS.volume_envelope
@@ -76,10 +56,18 @@ async def start_inference_files(
     f0_autotune_strength = f0_autotune_strength if f0_autotune_strength is not None else INFERENCE_DEFAULTS.f0_autotune_strength
     embedder_model = embedder_model if embedder_model is not None else INFERENCE_DEFAULTS.embedder_model
     index_rate = index_rate if index_rate is not None else INFERENCE_DEFAULTS.index_rate
+    
+    logger.debug(
+        f"추론 파라미터 | model_path={model_path} | index_path={index_path} | "
+        f"output_dir={output_dir} | volume_envelope={volume_envelope} | protect={protect} | "
+        f"f0_autotune={f0_autotune} | embedder_model={embedder_model} | index_rate={index_rate}"
+    )
 
     try:
         # 파일 저장
+        logger.info(f"추론 오디오 파일 저장 시작 | model_path={model_path}")
         temp_audio_path = file_repo.save_inference_audio(target_audio)
+        logger.info(f"추론 오디오 파일 저장 완료 | temp_audio_path={temp_audio_path}")
 
         # 비동기 작업 등록 (모든 요청을 큐에 추가, 리소스 확인은 워커에서 수행)
         request = InferenceFilesRequest(
@@ -95,10 +83,16 @@ async def start_inference_files(
             index_rate=index_rate,
         )
 
-        job_id = inference_queue.enqueue_async(
-            inference_service.infer_from_request,
-            request,
-        )
+        # 비동기 작업 등록
+        try:
+            job_id = inference_queue.enqueue_async(
+                inference_service.infer_from_request,
+                request,
+            )
+            logger.debug(f"작업 큐에 등록됨 | job_id={job_id}")
+        except Exception as e:
+            logger.error(f"작업 큐 등록 실패 | model_path={model_path} | error={e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"작업 큐 등록 실패: {str(e)}")
 
         logger.info(
             f"추론 작업 등록 완료 | job_id={job_id} | model_path={model_path} | "
@@ -110,9 +104,15 @@ async def start_inference_files(
         return {"status": "queued", "job_id": job_id}
     except HTTPException:
         raise
+    except ValueError as exc:
+        logger.error(f"추론 요청 검증 실패 | model_path={model_path} | error={exc}", exc_info=True)
+        raise HTTPException(status_code=400, detail=str(exc))
     except FileNotFoundError as exc:
-        logger.error("Inference request failed: %s", exc)
+        logger.error(f"추론 요청 실패: 파일을 찾을 수 없음 | model_path={model_path} | error={exc}", exc_info=True)
         raise HTTPException(status_code=404, detail=str(exc))
+    except OSError as exc:
+        logger.error(f"추론 요청 실패: 파일 시스템 오류 | model_path={model_path} | error={exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"파일 시스템 오류: {str(exc)}")
     except Exception as exc:
-        logger.exception("Unexpected inference error")
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.exception(f"추론 요청 예상치 못한 오류 | model_path={model_path} | error={exc}")
+        raise HTTPException(status_code=500, detail=f"내부 서버 오류: {str(exc)}")

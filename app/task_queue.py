@@ -142,28 +142,46 @@ class AsyncJobQueue:
         Returns:
             bool: 취소 성공 여부
         """
+        from .logging_config import get_logger
+        logger = get_logger(f"{__name__}.{self.name}")
+        
         job = self._jobs.get(job_id)
         if job is None:
+            logger.warning(f"작업을 찾을 수 없음 | job_id={job_id}")
             return False
         
         # 이미 완료된 작업은 취소 불가
         if job.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
+            logger.debug(
+                f"작업 취소 불가 (이미 완료됨) | job_id={job_id} | status={job.status.value}"
+            )
             return False
         
         # PENDING 상태인 작업: 큐에서 제거
         if job.status == JobStatus.PENDING:
-            job.status = JobStatus.CANCELLED
-            job.completed_at = datetime.now()
-            job.error = "작업이 취소되었습니다."
-            if job.future and not job.future.done():
-                job.future.cancel()
-            return True
+            try:
+                job.status = JobStatus.CANCELLED
+                job.completed_at = datetime.now()
+                job.error = "작업이 취소되었습니다."
+                if job.future and not job.future.done():
+                    job.future.cancel()
+                logger.info(f"작업 취소 완료 (대기 중) | queue={self.name} | job_id={job_id}")
+                return True
+            except Exception as e:
+                logger.error(f"작업 취소 중 오류 | queue={self.name} | job_id={job_id} | error={e}", exc_info=True)
+                return False
         
         # RUNNING 상태인 작업: 취소 플래그 설정
         if job.status == JobStatus.RUNNING:
-            job.cancelled = True
-            return True
+            try:
+                job.cancelled = True
+                logger.info(f"작업 취소 플래그 설정 (실행 중) | queue={self.name} | job_id={job_id}")
+                return True
+            except Exception as e:
+                logger.error(f"작업 취소 플래그 설정 중 오류 | queue={self.name} | job_id={job_id} | error={e}", exc_info=True)
+                return False
         
+        logger.warning(f"알 수 없는 작업 상태 | queue={self.name} | job_id={job_id} | status={job.status.value}")
         return False
     
     def list_all_jobs(self) -> list[dict[str, Any]]:
@@ -195,12 +213,19 @@ class AsyncJobQueue:
         from .logging_config import get_logger
         worker_logger = get_logger(f"{__name__}.{self.name}_worker")
         
+        worker_logger.info(f"워커 루프 시작 | queue={self.name}")
+        
         while True:
-            job_id, coroutine_func, args, kwargs, future = await self._queue.get()
-            job = self._jobs.get(job_id)
-            
-            if job is None:
-                self._queue.task_done()
+            try:
+                job_id, coroutine_func, args, kwargs, future = await self._queue.get()
+                job = self._jobs.get(job_id)
+                
+                if job is None:
+                    worker_logger.warning(f"작업 정보를 찾을 수 없음 (큐에서 제거됨) | queue={self.name} | job_id={job_id}")
+                    self._queue.task_done()
+                    continue
+            except Exception as e:
+                worker_logger.error(f"큐에서 작업 가져오기 실패 | queue={self.name} | error={e}", exc_info=True)
                 continue
             
             # 리소스 모니터가 있으면 리소스 상태 확인
@@ -225,7 +250,6 @@ class AsyncJobQueue:
             # 재시도 로직
             max_retries = 3
             retry_count = 0
-            last_exception = None
             
             while retry_count <= max_retries:
                 try:

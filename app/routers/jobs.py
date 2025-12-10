@@ -146,20 +146,45 @@ async def cancel_job(
     inference_queue: AsyncJobQueue = Depends(get_inference_queue),
 ):
     """작업을 취소합니다."""
+    from ..logging_config import get_logger
+    logger = get_logger(__name__)
+    
+    logger.info(f"작업 취소 요청 | queue={queue_name} | job_id={job_id}")
+    
     queue = None
     if queue_name == "train":
         queue = train_queue
     elif queue_name == "inference":
         queue = inference_queue
     else:
+        logger.error(f"알 수 없는 큐 이름 | queue_name={queue_name}")
         raise HTTPException(status_code=400, detail=f"Unknown queue: {queue_name}")
     
-    success = queue.cancel_job(job_id)
-    if not success:
-        raise HTTPException(
-            status_code=404, 
-            detail="Job not found or cannot be cancelled (job may be already completed, failed, or cancelled)"
-        )
-    
-    return {"status": "cancelled", "job_id": job_id}
+    try:
+        # 작업 상태 확인
+        job = queue.get_job_status(job_id)
+        if not job:
+            logger.warning(f"작업을 찾을 수 없음 | queue={queue_name} | job_id={job_id}")
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        logger.debug(f"작업 상태 확인 | queue={queue_name} | job_id={job_id} | status={job.status.value}")
+        
+        success = queue.cancel_job(job_id)
+        if not success:
+            logger.warning(
+                f"작업 취소 실패 | queue={queue_name} | job_id={job_id} | "
+                f"status={job.status.value} | reason=이미 완료되었거나 취소할 수 없는 상태"
+            )
+            raise HTTPException(
+                status_code=400, 
+                detail="Job cannot be cancelled (job may be already completed, failed, or cancelled)"
+            )
+        
+        logger.info(f"작업 취소 성공 | queue={queue_name} | job_id={job_id} | status={job.status.value}")
+        return {"status": "cancelled", "job_id": job_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"작업 취소 중 오류 | queue={queue_name} | job_id={job_id} | error={e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"작업 취소 중 오류 발생: {str(e)}")
 
