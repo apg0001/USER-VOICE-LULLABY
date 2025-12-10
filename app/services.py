@@ -99,6 +99,59 @@ async def _remove_dataset(dataset_path):
 
 
 # model_dir 내 모든 파일과 폴더를 삭제하되, 확장자가 .pth 인 파일만 유지
+def _update_model_info_files(model_dir: Path) -> None:
+    """model_info.json 파일의 모델 파일 경로를 업데이트합니다."""
+    import json
+    
+    model_info_path = model_dir / "model_info.json"
+    if not model_info_path.exists():
+        logger.warning(f"model_info.json 파일이 없습니다: {model_info_path}")
+        return
+    
+    try:
+        # 기존 정보 로드
+        with open(model_info_path, "r", encoding="utf-8") as f:
+            model_info_json = json.load(f)
+        
+        # 현재 모델 디렉토리의 모든 .pth와 .index 파일 수집
+        pth_files = list(model_dir.glob("*.pth"))
+        index_files = list(model_dir.glob("*.index"))
+        
+        pth_files_absolute = sorted([str(f.resolve()) for f in pth_files])
+        index_files_absolute = sorted([str(f.resolve()) for f in index_files])
+        
+        # 파일 경로 업데이트 (중복 제거)
+        existing_pth = set(model_info_json.get("model_files_absolute", []))
+        existing_index = set(model_info_json.get("index_files_absolute", []))
+        
+        new_pth = set(pth_files_absolute)
+        new_index = set(index_files_absolute)
+        
+        # 새로 추가된 파일만 로그 출력
+        added_pth = new_pth - existing_pth
+        added_index = new_index - existing_index
+        
+        if added_pth:
+            logger.info(f"새 모델 파일 감지 및 model_info.json 업데이트: {', '.join(sorted(added_pth))}")
+        if added_index:
+            logger.info(f"새 인덱스 파일 감지 및 model_info.json 업데이트: {', '.join(sorted(added_index))}")
+        
+        # 업데이트된 경로 저장
+        model_info_json["model_files_absolute"] = sorted(list(new_pth))
+        model_info_json["index_files_absolute"] = sorted(list(new_index))
+        
+        # 파일 저장
+        with open(model_info_path, "w", encoding="utf-8") as f:
+            json.dump(model_info_json, f, indent=2, ensure_ascii=False)
+        
+        # 새로 추가된 파일이 있을 때만 로그 출력
+        if added_pth or added_index:
+            logger.debug(f"model_info.json 업데이트 완료: {model_info_path}")
+        
+    except Exception as e:
+        logger.error(f"model_info.json 업데이트 실패: {model_info_path} - {e}", exc_info=True)
+
+
 async def _remove_preprocess(model_dir):
     path = Path(model_dir)
     if not path.exists() or not path.is_dir():
@@ -109,7 +162,8 @@ async def _remove_preprocess(model_dir):
     def _clean_dir():
         for item in path.iterdir():
             if item.is_file():
-                if item.suffix not in [".pth", ".index"]:
+                # .pth, .index, model_info.json 파일은 유지
+                if item.suffix not in [".pth", ".index"] and item.name != "model_info.json":
                     try:
                         item.unlink()
                     except Exception as e:
@@ -166,6 +220,27 @@ async def train_model(
 
     model_dir = _logs_dir(model_name)
     logger.info("Training start | model=%s dataset=%s", model_name, dataset)
+    
+    # 모델 정보 JSON 파일을 학습 시작 전에 생성
+    import json
+    model_info_path = model_dir / "model_info.json"
+    model_info_json = {
+        "model_name": model_name,
+        "embedder_model": embedder_model,
+        "sample_rate": sample_rate,
+        "total_epoch": total_epoch,
+        "vocoder": vocoder,
+        "model_files_absolute": [],  # 학습 중 생성되는 파일로 업데이트됨
+        "index_files_absolute": [],  # 학습 중 생성되는 파일로 업데이트됨
+        "model_description": model_description,
+    }
+    
+    # model_dir가 없으면 생성
+    model_dir.mkdir(parents=True, exist_ok=True)
+    
+    with open(model_info_path, "w", encoding="utf-8") as f:
+        json.dump(model_info_json, f, indent=2, ensure_ascii=False)
+    logger.info(f"모델 정보 파일 생성 완료 (학습 시작 전): {model_info_path}")
 
     # 보컬 분리 수행 (추론과 동일한 방식)
     logger.info("학습용 오디오 파일 보컬 분리 시작")
@@ -306,37 +381,8 @@ async def train_model(
         )
     logger.info(f"생성된 모델 파일 수: {len(model_files)}")
 
-    # 모델 파일과 인덱스 파일의 절대 경로 수집
-    pth_files = list(model_dir.glob("*.pth"))
-    index_files = list(model_dir.glob("*.index"))
-    
-    pth_files_absolute = [str(f.resolve()) for f in pth_files]
-    index_files_absolute = [str(f.resolve()) for f in index_files]
-
-    # 최종 모델 저장 경로 로그 출력
-    if pth_files_absolute:
-        logger.info(f"최종 모델 저장 경로 (.pth): {', '.join(pth_files_absolute)}")
-    if index_files_absolute:
-        logger.info(f"최종 인덱스 파일 저장 경로 (.index): {', '.join(index_files_absolute)}")
-    logger.info(f"모델 디렉토리 절대 경로: {model_dir.resolve()}")
-
-    # 모델 정보를 JSON 파일로 저장
-    model_info_json = {
-        "model_name": model_name,
-        "embedder_model": embedder_model,
-        "sample_rate": sample_rate,
-        "total_epoch": total_epoch,
-        "vocoder": vocoder,
-        "model_files_absolute": pth_files_absolute,
-        "index_files_absolute": index_files_absolute,
-        "model_description": model_description,
-    }
-    
-    import json
-    model_info_path = model_dir / "model_info.json"
-    with open(model_info_path, "w", encoding="utf-8") as f:
-        json.dump(model_info_json, f, indent=2, ensure_ascii=False)
-    logger.info(f"모델 정보 저장 완료: {model_info_path}")
+    # 모델 파일과 인덱스 파일의 절대 경로를 model_info.json에 최종 업데이트
+    _update_model_info_files(model_dir)
 
     # 학습용 데이터셋 및 중간 산출물 정리
     try:
