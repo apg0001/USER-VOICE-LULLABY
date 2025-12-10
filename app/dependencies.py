@@ -71,7 +71,8 @@ def get_train_queue() -> AsyncJobQueue:
     """학습 큐 싱글톤"""
     global _train_queue
     if _train_queue is None:
-        _train_queue = AsyncJobQueue("train")
+        monitor = get_resource_monitor()
+        _train_queue = AsyncJobQueue("train", resource_monitor=monitor, max_workers=4)
     return _train_queue
 
 
@@ -79,6 +80,7 @@ def get_inference_queue() -> AsyncJobQueue:
     """추론 큐 싱글톤"""
     global _inference_queue
     if _inference_queue is None:
-        _inference_queue = AsyncJobQueue("inference")
+        monitor = get_resource_monitor()
+        _inference_queue = AsyncJobQueue("inference", resource_monitor=monitor, max_workers=4)
     return _inference_queue
 

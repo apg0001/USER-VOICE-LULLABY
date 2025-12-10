@@ -43,6 +43,34 @@ class ResourceStatus:
                 return False
         
         return True
+    
+    def get_max_concurrent_jobs(self) -> int:
+        """리소스 상태에 따라 동시 실행 가능한 최대 작업 수 계산"""
+        # 기본값: 최소 1개, 최대 4개
+        max_jobs = 1
+        
+        # CPU 여유도에 따라 조정 (CPU 사용률이 낮을수록 더 많은 작업 가능)
+        if self.cpu_percent < 50.0:
+            max_jobs = max(max_jobs, 4)
+        elif self.cpu_percent < 70.0:
+            max_jobs = max(max_jobs, 3)
+        elif self.cpu_percent < 85.0:
+            max_jobs = max(max_jobs, 2)
+        
+        # 메모리 여유도에 따라 조정
+        if self.memory_percent < 50.0:
+            max_jobs = max(max_jobs, 4)
+        elif self.memory_percent < 70.0:
+            max_jobs = max(max_jobs, 3)
+        elif self.memory_percent < 85.0:
+            max_jobs = max(max_jobs, 2)
+        
+        # GPU가 있는 경우 GPU 개수에 따라 조정
+        if self.gpu_utilization:
+            available_gpus = sum(1 for util in self.gpu_utilization if util < 80.0)
+            max_jobs = max(max_jobs, available_gpus)
+        
+        return min(max_jobs, 4)  # 최대 4개로 제한
 
 
 class ResourceMonitor:

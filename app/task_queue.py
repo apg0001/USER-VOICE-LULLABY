@@ -34,11 +34,13 @@ class Job:
 class AsyncJobQueue:
     """Job ID 기반 비동기 작업 큐."""
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, resource_monitor=None, max_workers: int = 4):
         self.name = name
         self._queue: "asyncio.Queue[tuple[str, Callable[..., Awaitable[Any]], tuple[Any, ...], dict[str, Any], asyncio.Future]]" = asyncio.Queue()
-        self._worker: asyncio.Task | None = None
-        self._active = False
+        self._workers: list[asyncio.Task] = []
+        self._max_workers = max_workers
+        self._resource_monitor = resource_monitor
+        self._active_jobs: set[str] = set()  # 현재 실행 중인 job_id 집합
         self._jobs: dict[str, Job] = {}  # job_id -> Job
 
     @property
@@ -47,18 +49,37 @@ class AsyncJobQueue:
 
     @property
     def is_running(self) -> bool:
-        return self._worker is not None and not self._worker.done()
+        return len(self._workers) > 0 and any(not w.done() for w in self._workers)
+    
+    @property
+    def running_count(self) -> int:
+        """현재 실행 중인 작업 수"""
+        return len(self._active_jobs)
 
     async def start(self) -> None:
-        if self._worker is None or self._worker.done():
-            self._worker = asyncio.create_task(self._worker_loop())
+        """워커 시작 (여러 워커 생성)"""
+        if len(self._workers) == 0 or all(w.done() for w in self._workers):
+            # 리소스 모니터가 있으면 동적으로 워커 수 결정
+            num_workers = self._max_workers
+            if self._resource_monitor:
+                try:
+                    status = self._resource_monitor.get_resource_status()
+                    num_workers = min(status.get_max_concurrent_jobs(), self._max_workers)
+                except Exception:
+                    pass  # 리소스 모니터 오류 시 기본값 사용
+            
+            self._workers = [
+                asyncio.create_task(self._worker_loop()) 
+                for _ in range(num_workers)
+            ]
 
     async def stop(self) -> None:
-        if self._worker:
-            self._worker.cancel()
+        """모든 워커 중지"""
+        for worker in self._workers:
+            worker.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await self._worker
-            self._worker = None
+                await worker
+        self._workers = []
 
     def enqueue_async(
         self, coroutine_func: Callable[..., Awaitable[Any]], *args, **kwargs
@@ -135,7 +156,7 @@ class AsyncJobQueue:
         return {
             "name": self.name,
             "pending": self.pending,  # 대기 중인 작업 수
-            "running": 1 if self._active else 0,  # 실행 중인 작업 수 (단일 워커)
+            "running": self.running_count,  # 실행 중인 작업 수
         }
 
     async def _worker_loop(self) -> None:
@@ -147,7 +168,27 @@ class AsyncJobQueue:
             job = self._jobs.get(job_id)
             
             if job is None:
+                self._queue.task_done()
                 continue
+            
+            # 리소스 모니터가 있으면 리소스 상태 확인
+            if self._resource_monitor:
+                try:
+                    status = self._resource_monitor.get_resource_status()
+                    # 리소스가 부족하면 대기 (최대 30초)
+                    wait_count = 0
+                    max_wait = 30  # 최대 30초 대기
+                    while not status.can_accept_job and wait_count < max_wait:
+                        await asyncio.sleep(1)
+                        wait_count += 1
+                        status = self._resource_monitor.get_resource_status()
+                    
+                    if wait_count >= max_wait:
+                        worker_logger.warning(
+                            f"리소스 부족으로 작업 시작 지연 | queue={self.name} | job_id={job_id}"
+                        )
+                except Exception as e:
+                    worker_logger.debug(f"리소스 모니터 확인 실패: {e}")
             
             # 재시도 로직
             max_retries = 3
@@ -156,7 +197,7 @@ class AsyncJobQueue:
             
             while retry_count <= max_retries:
                 try:
-                    self._active = True
+                    self._active_jobs.add(job_id)
                     if retry_count == 0:
                         job.status = JobStatus.RUNNING
                         job.started_at = datetime.now()
@@ -215,7 +256,6 @@ class AsyncJobQueue:
                         if not future.done():
                             future.set_exception(exc)
                 finally:
-                    if retry_count > max_retries or job.status == JobStatus.COMPLETED:
-                        self._active = False
+                    self._active_jobs.discard(job_id)
             
             self._queue.task_done()

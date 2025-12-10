@@ -23,16 +23,6 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
-def _check_and_raise_if_resources_unavailable(monitor: ResourceMonitor) -> None:
-    """리소스 가용성 확인 및 예외 발생"""
-    status = monitor.get_resource_status()
-    if not status.can_accept_job:
-        raise HTTPException(
-            status_code=503,
-            detail="시스템 리소스가 부족하여 새 작업을 받을 수 없습니다. 잠시 후 다시 시도해주세요.",
-        )
-
-
 @router.post("/train")
 async def start_training(
     payload: TrainRequest,
@@ -94,10 +84,7 @@ async def start_training_files(
         # 파일 저장
         dataset_path = file_repo.save_training_files(model_id, files)
 
-        # 리소스 확인
-        # _check_and_raise_if_resources_unavailable(monitor)
-
-        # 비동기 작업 등록
+        # 비동기 작업 등록 (모든 요청을 큐에 추가, 리소스 확인은 워커에서 수행)
         request = TrainFilesRequest(
             model_id=model_id,
             dataset_path=str(dataset_path),
