@@ -187,7 +187,7 @@ async def train_model(
         for audio_file in audio_files:
             logger.info(f"보컬 분리 중: {audio_file.name}")
             try:
-                # 보컬 분리 수행
+                # 보컬 분리 수행 (예외 처리 강화)
                 separation_result = await separate_vocal_instrumental(
                     str(audio_file), str(temp_separation_dir)
                 )
@@ -195,6 +195,11 @@ async def train_model(
                 
                 if not vocals_path.exists():
                     logger.warning(f"보컬 분리 실패: {vocals_path} - 원본 파일 사용")
+                    continue
+                
+                # 파일 크기 확인 (0 bytes 체크)
+                if vocals_path.stat().st_size == 0:
+                    logger.warning(f"보컬 분리 결과 파일이 비어있음: {vocals_path} - 원본 파일 사용")
                     continue
                 
                 # 원본 파일을 보컬 파일로 교체 (백업 없이 바로 교체)
@@ -208,8 +213,14 @@ async def train_model(
                 if separation_folder not in separation_folders:
                     separation_folders.append(separation_folder)
                 
+            except RuntimeError as e:
+                logger.error(f"보컬 분리 실패 (원본 파일 사용): {audio_file.name} - {e}", exc_info=True)
+                # 보컬 분리 실패 시 원본 파일 그대로 사용
             except Exception as e:
-                logger.error(f"보컬 분리 실패 (원본 파일 사용): {audio_file.name} - {e}")
+                logger.error(
+                    f"보컬 분리 중 예상치 못한 오류 (원본 파일 사용): {audio_file.name} - {e}",
+                    exc_info=True
+                )
                 # 보컬 분리 실패 시 원본 파일 그대로 사용
         
         logger.info("학습용 오디오 파일 보컬 분리 완료")
@@ -543,8 +554,14 @@ async def run_inference(
                 )
 
 
+# 보컬 분리 작업을 위한 락 (TensorFlow Graph 충돌 방지)
+_separation_lock = asyncio.Lock()
+
 async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) -> dict:
-    """오디오를 보컬/인스트루멘탈로 분리 (문자열 경로 사용)"""
+    """오디오를 보컬/인스트루멘탈로 분리 (문자열 경로 사용)
+    
+    TensorFlow Graph 충돌을 방지하기 위해 락을 사용하여 동시 실행을 제한합니다.
+    """
     input_path = Path(input_audio_path)
     if not input_path.exists():
         raise FileNotFoundError(f"입력 파일 없음: {input_audio_path}")
@@ -552,12 +569,51 @@ async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) ->
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    separator = Separator("spleeter:2stems")
-    separator.separate_to_file(input_audio_path, output_dir)
+    # 락을 사용하여 동시 실행 제한 (TensorFlow Graph 충돌 방지)
+    async with _separation_lock:
+        try:
+            # 별도 스레드에서 실행하여 TensorFlow 컨텍스트 격리
+            def _separate_audio():
+                import tensorflow as tf
+                # TensorFlow Graph 초기화
+                tf.compat.v1.reset_default_graph()
+                
+                try:
+                    separator = Separator("spleeter:2stems")
+                    separator.separate_to_file(input_audio_path, output_dir)
+                finally:
+                    # TensorFlow 세션 정리
+                    try:
+                        tf.compat.v1.reset_default_graph()
+                    except Exception:
+                        pass  # 정리 실패는 무시
+            
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, _separate_audio)
+            
+        except Exception as e:
+            logger.error(
+                f"보컬 분리 중 오류 발생 | input={input_audio_path} | error={e}",
+                exc_info=True
+            )
+            # TensorFlow Graph 초기화 시도
+            try:
+                import tensorflow as tf
+                tf.compat.v1.reset_default_graph()
+            except Exception:
+                pass
+            raise RuntimeError(f"보컬 분리 실패: {str(e)}")
 
     base_name = input_path.stem
     vocals_path = output_path / base_name / f"vocals.wav"
     instrumental_path = output_path / base_name / f"accompaniment.wav"
+    
+    # 출력 파일 확인
+    if not vocals_path.exists() or not instrumental_path.exists():
+        raise RuntimeError(
+            f"보컬 분리 출력 파일이 생성되지 않았습니다: "
+            f"vocals={vocals_path.exists()}, instrumental={instrumental_path.exists()}"
+        )
 
     return {"vocals": str(vocals_path), "instrumental": str(instrumental_path)}
 
