@@ -117,13 +117,13 @@ class ModelRepository:
         """모델 정보 JSON 파일 로드"""
         model_info_path = model_dir / "model_info.json"
         if not model_info_path.exists():
-            logger.debug(f"모델 정보 JSON 파일 없음: {model_info_path}")
+            logger.info(f"모델 정보 JSON 파일 없음: {model_info_path}")
             return None
         
         try:
             with open(model_info_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                logger.debug(f"모델 정보 JSON 파일 로드 성공: {model_info_path} | keys={list(data.keys()) if data else 'empty'}")
+                logger.info(f"모델 정보 JSON 파일 로드 성공: {model_info_path} | keys={list(data.keys()) if data else 'empty'}")
                 return data
         except json.JSONDecodeError as e:
             logger.error(f"모델 정보 JSON 파일 파싱 실패: {model_info_path} - {e}", exc_info=True)

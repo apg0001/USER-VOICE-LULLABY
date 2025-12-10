@@ -569,49 +569,71 @@ async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) ->
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # 락을 사용하여 동시 실행 제한 (TensorFlow Graph 충돌 방지)
-    async with _separation_lock:
-        try:
-            # 별도 스레드에서 실행하여 TensorFlow 컨텍스트 격리
-            def _separate_audio():
-                import tensorflow as tf
-                
-                # 새로운 Graph 컨텍스트에서 실행
-                # reset_default_graph() 대신 명시적으로 새 Graph 생성
-                with tf.Graph().as_default():
-                    try:
-                        # 각 작업마다 새로운 Separator 인스턴스 생성
-                        separator = Separator("spleeter:2stems")
-                        separator.separate_to_file(input_audio_path, output_dir)
-                    except Exception as e:
-                        logger.error(
-                            f"보컬 분리 실행 중 오류 | input={input_audio_path} | error={e}",
-                            exc_info=True
-                        )
-                        raise
-            
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, _separate_audio)
-            
-        except Exception as e:
-            logger.error(
-                f"보컬 분리 중 오류 발생 | input={input_audio_path} | error={e}",
-                exc_info=True
-            )
-            raise RuntimeError(f"보컬 분리 실패: {str(e)}")
-
     base_name = input_path.stem
     vocals_path = output_path / base_name / f"vocals.wav"
     instrumental_path = output_path / base_name / f"accompaniment.wav"
     
-    # 출력 파일 확인
-    if not vocals_path.exists() or not instrumental_path.exists():
-        raise RuntimeError(
+    # 락을 사용하여 동시 실행 제한 (TensorFlow Graph 충돌 방지)
+    async with _separation_lock:
+        separation_success = False
+        separation_error = None
+        
+        try:
+            # 별도 스레드에서 실행하여 TensorFlow 컨텍스트 격리
+            def _separate_audio():
+                # spleeter가 자체적으로 TensorFlow Graph를 관리하므로
+                # 우리가 Graph 컨텍스트를 만들지 않음
+                # 락으로 동시 실행을 제한하여 충돌 방지
+                try:
+                    # 각 작업마다 새로운 Separator 인스턴스 생성
+                    separator = Separator("spleeter:2stems")
+                    separator.separate_to_file(input_audio_path, output_dir)
+                except Exception as e:
+                    logger.error(
+                        f"보컬 분리 실행 중 오류 | input={input_audio_path} | error={e}",
+                        exc_info=True
+                    )
+                    raise
+            
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, _separate_audio)
+            separation_success = True
+            
+        except Exception as e:
+            separation_error = e
+            logger.warning(
+                f"보컬 분리 실행 중 예외 발생 (출력 파일 확인 예정) | input={input_audio_path} | error={e}"
+            )
+            # 예외가 발생해도 출력 파일이 생성되었는지 확인
+    
+    # 출력 파일 확인 (실제 성공 여부 판단)
+    if vocals_path.exists() and instrumental_path.exists():
+        # 파일 크기 확인 (0 bytes 체크)
+        if vocals_path.stat().st_size > 0 and instrumental_path.stat().st_size > 0:
+            logger.info(
+                f"보컬 분리 성공 | input={input_audio_path} | "
+                f"vocals={vocals_path} ({vocals_path.stat().st_size} bytes) | "
+                f"instrumental={instrumental_path} ({instrumental_path.stat().st_size} bytes)"
+            )
+            return {"vocals": str(vocals_path), "instrumental": str(instrumental_path)}
+        else:
+            error_msg = (
+                f"보컬 분리 출력 파일이 비어있습니다: "
+                f"vocals={vocals_path.stat().st_size} bytes, "
+                f"instrumental={instrumental_path.stat().st_size} bytes"
+            )
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+    else:
+        # 출력 파일이 없으면 실패
+        error_msg = (
             f"보컬 분리 출력 파일이 생성되지 않았습니다: "
             f"vocals={vocals_path.exists()}, instrumental={instrumental_path.exists()}"
         )
-
-    return {"vocals": str(vocals_path), "instrumental": str(instrumental_path)}
+        if separation_error:
+            error_msg += f" | 원인: {str(separation_error)}"
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
 
 
 async def merge_vocal_instrumental(
