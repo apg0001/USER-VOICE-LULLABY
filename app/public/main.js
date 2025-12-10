@@ -607,6 +607,7 @@ const renderJobsTable = (jobs) => {
           <th>Job ID</th>
           <th>상태</th>
           <th>진행률</th>
+          ${queueName === "train" ? "<th>모델 ID</th><th>모델 설명</th>" : ""}
           <th>생성 시간</th>
           <th>시작 시간</th>
           <th>완료 시간</th>
@@ -643,6 +644,10 @@ const renderJobsTable = (jobs) => {
     const result = job.result ? JSON.stringify(job.result).substring(0, 100) + (JSON.stringify(job.result).length > 100 ? "..." : "") : "-";
     const error = job.error || "-";
     
+    // 모델 ID와 설명 (학습 작업의 경우)
+    const modelId = queueName === "train" ? (job.model_id ? job.model_id.substring(0, 8) + "..." : "-") : "";
+    const modelDesc = queueName === "train" ? (job.model_description || "-") : "";
+    
     // 취소 가능한 상태인지 확인 (pending 또는 running)
     const canCancel = status === "pending" || status === "running";
     const cancelButton = canCancel 
@@ -654,6 +659,7 @@ const renderJobsTable = (jobs) => {
         <td><strong>${job.job_id.substring(0, 8)}...</strong></td>
         <td><span class="status-badge ${statusClass}">${status}</span></td>
         <td>${progress}</td>
+        ${queueName === "train" ? `<td>${modelId}</td><td style="font-size: 0.8rem; max-width: 200px; word-break: break-all; white-space: pre-wrap;">${modelDesc}</td>` : ""}
         <td>${formatDate(job.created_at)}</td>
         <td>${formatDate(job.started_at)}</td>
         <td>${formatDate(job.completed_at)}</td>

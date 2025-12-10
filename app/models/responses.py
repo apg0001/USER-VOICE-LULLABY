@@ -68,3 +68,5 @@ class JobStatusResponse(BaseModel):
     result: dict | None = None
     error: Optional[str] = None
     progress: Optional[dict] = Field(None, description="작업 진행률 정보 (학습 작업의 경우)")
+    model_id: Optional[str] = Field(None, description="모델 ID (학습 작업의 경우)")
+    model_description: Optional[str] = Field(None, description="모델 설명 (학습 작업의 경우)")

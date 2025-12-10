@@ -101,13 +101,22 @@ async def list_jobs(
     results = []
     
     for job_data in all_jobs:
-        # 학습 작업의 경우 진행률 계산
+        # 학습 작업의 경우 진행률 계산 및 모델 정보 추출
         job = queue.get_job_status(job_data["job_id"])
         progress = None
+        model_id = None
+        model_description = None
+        
         if job:
             progress = _get_training_progress(job, queue_name)
+            # 학습 작업의 경우 메타데이터에서 모델 ID와 설명 추출
+            if queue_name == "train" and job.metadata:
+                model_id = job.metadata.get("model_id")
+                model_description = job.metadata.get("model_description")
         
         job_data["progress"] = progress
+        job_data["model_id"] = model_id
+        job_data["model_description"] = model_description
         results.append(JobStatusResponse(**job_data))
     
     return results
@@ -133,13 +142,23 @@ async def get_job_status(
     if "error" in result and result["error"] == "Job not found":
         raise HTTPException(status_code=404, detail="Job not found")
     
-    # 학습 작업의 경우 진행률 계산
+    # 학습 작업의 경우 진행률 계산 및 모델 정보 추출
     job = queue.get_job_status(job_id)
     progress = None
+    model_id = None
+    model_description = None
+    
     if job:
-        progress = _get_training_progress(job, queue_name)
+        if queue_name == "train":
+            progress = _get_training_progress(job, queue_name)
+            # 메타데이터에서 모델 ID와 설명 추출
+            if job.metadata:
+                model_id = job.metadata.get("model_id")
+                model_description = job.metadata.get("model_description")
     
     result["progress"] = progress
+    result["model_id"] = model_id
+    result["model_description"] = model_description
     
     return JobStatusResponse(**result)
 

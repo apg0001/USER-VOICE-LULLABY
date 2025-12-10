@@ -100,15 +100,17 @@ async def start_training(
             logger.error(f"작업 큐 등록 실패 | model_id={model_id} | error={e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"작업 큐 등록 실패: {str(e)}")
         
-        # job에 metadata 저장 (진행률 계산용)
+        # job에 metadata 저장 (진행률 계산용 및 모델 정보)
         try:
             job = train_queue.get_job_status(job_id)
             if job:
                 job.metadata = {
                     "model_name": model_id,
+                    "model_id": model_id,
+                    "model_description": model_description,
                     "total_epoch": total_epoch,
                 }
-                logger.debug(f"작업 메타데이터 저장 완료 | job_id={job_id}")
+                logger.debug(f"작업 메타데이터 저장 완료 | job_id={job_id} | model_id={model_id}")
             else:
                 logger.warning(f"작업 상태를 찾을 수 없음 | job_id={job_id}")
         except Exception as e:
