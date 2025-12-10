@@ -197,16 +197,9 @@ async def train_model(
                     logger.warning(f"보컬 분리 실패: {vocals_path} - 원본 파일 사용")
                     continue
                 
-                # 원본 파일을 보컬 파일로 교체
+                # 원본 파일을 보컬 파일로 교체 (백업 없이 바로 교체)
                 # 원본 파일 확장자 유지
-                original_ext = audio_file.suffix
-                backup_path = audio_file.with_suffix(f".original{original_ext}")
-                
-                # 원본 파일 백업 (안전을 위해)
-                if not backup_path.exists():
-                    shutil.copy2(audio_file, backup_path)
-                
-                # 보컬 파일을 원본 파일 위치로 복사
+                # 보컬 파일을 원본 파일 위치로 복사 (원본 파일 덮어쓰기)
                 shutil.copy2(vocals_path, audio_file)
                 logger.info(f"보컬 파일로 교체 완료: {audio_file.name}")
                 
