@@ -18,22 +18,21 @@ from app.logging_config import PROJECT_ROOT, get_logger
 
 INNER_RVC = RVC_ROOT / "rvc"
 
-# RVC 루트가 존재하지 않으면 오류 발생
 if not RVC_ROOT.exists():
     raise RuntimeError(f"rvc 디렉터리를 찾을 수 없습니다: {RVC_ROOT}")
 
-# 현재 작업 디렉토리 저장 후 RVC 루트로 변경하여
-# RVC 관련 모듈 임포트 전 환경 설정
+# RVC 모듈 임포트 전 환경 설정
+# RVC 스크립트는 특정 작업 디렉토리에서 실행되어야 하며,
+# sys.path에 RVC 내부 경로가 포함되어야 정상적으로 임포트됩니다.
 _ORIGINAL_CWD = Path.cwd()
 try:
     if _ORIGINAL_CWD != RVC_ROOT:
-        os.chdir(RVC_ROOT)  # 작업디렉토리 이동
-    # RVC 내부 모듈 경로를 sys.path에 추가하여 임포트 가능하게 설정
+        os.chdir(RVC_ROOT)
+    # RVC 내부 모듈 경로를 sys.path에 추가하여 core 모듈 임포트 가능하게 설정
     for path in (INNER_RVC, RVC_ROOT):
         path_str = str(path)
         if path.exists() and path_str not in sys.path:
             sys.path.insert(0, path_str)
-    # RVC 핵심 스크립트 임포트
     from core import (
         run_extract_script,
         run_infer_script,
@@ -42,9 +41,8 @@ try:
         run_prerequisites_script,
     )
 finally:
-    os.chdir(_ORIGINAL_CWD)  # 작업 디렉토리 원복
+    os.chdir(_ORIGINAL_CWD)
 
-# 설정값 임포트
 from app.settings import INFERENCE_DEFAULTS, TRAINING_DEFAULTS
 
 logger = get_logger(__name__)
@@ -52,39 +50,40 @@ logger = get_logger(__name__)
 __all__ = ["run_inference", "train_model"]
 
 
-# 디렉토리가 없으면 생성해주는 헬퍼함수
 def _ensure_directory(path: Path) -> Path:
+    """디렉토리가 없으면 생성하고 반환"""
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
-# 절대경로 혹은 base 경로 기준 절대경로 변환
 def _resolve_path(input_path: str, base: Path) -> Path:
+    """상대 경로를 base 기준으로 절대 경로로 변환"""
     path_obj = Path(input_path)
     if not path_obj.is_absolute():
         path_obj = base / path_obj
     return path_obj.resolve()
 
 
-# 모델별 로그 디렉토리 생성 및 반환
 def _logs_dir(model_name: str) -> Path:
+    """모델별 로그 디렉토리 생성 및 반환"""
     return _ensure_directory(RVC_LOGS_DIR / model_name)
 
 
-# 차단(blocking) 함수 비동기 실행 도와주는 헬퍼
 async def _run_blocking(func, *args, **kwargs):
+    """블로킹 함수를 별도 스레드에서 비동기로 실행"""
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, lambda: func(*args, **kwargs))
 
 
-# 학습 완료 후 학습용 데이터셋 삭제
 async def _remove_dataset(dataset_path):
     """학습용 데이터셋 디렉토리 삭제 (존재하지 않으면 무시)"""
     path = Path(dataset_path)
     if not path.exists():
-        logger.debug(f"삭제할 데이터셋 경로가 존재하지 않음 (이미 삭제되었거나 생성되지 않음): {dataset_path}")
+        logger.debug(
+            f"삭제할 데이터셋 경로가 존재하지 않음 (이미 삭제되었거나 생성되지 않음): {dataset_path}"
+        )
         return
-    
+
     if not path.is_dir():
         logger.warning(f"데이터셋 경로가 디렉토리가 아님: {dataset_path}")
         return
@@ -98,61 +97,68 @@ async def _remove_dataset(dataset_path):
         raise
 
 
-# model_dir 내 모든 파일과 폴더를 삭제하되, 확장자가 .pth 인 파일만 유지
 def _update_model_info_files(model_dir: Path) -> None:
-    """model_info.json 파일의 모델 파일 경로를 업데이트합니다."""
+    """학습 완료 후 model_info.json의 모델 파일(.pth)과 인덱스 파일(.index) 경로를 업데이트
+
+    학습 중 생성된 모든 .pth와 .index 파일의 절대 경로를 수집하여
+    model_info.json에 저장합니다. UI에서 모델 리스트 조회 시 사용됩니다.
+    """
     import json
-    
+
     model_info_path = model_dir / "model_info.json"
     if not model_info_path.exists():
         logger.warning(f"model_info.json 파일이 없습니다: {model_info_path}")
         return
-    
+
     try:
-        # 기존 정보 로드
         with open(model_info_path, "r", encoding="utf-8") as f:
             model_info_json = json.load(f)
-        
-        # 현재 모델 디렉토리의 모든 .pth와 .index 파일 수집
+
         pth_files = list(model_dir.glob("*.pth"))
         index_files = list(model_dir.glob("*.index"))
-        
+
         pth_files_absolute = sorted([str(f.resolve()) for f in pth_files])
         index_files_absolute = sorted([str(f.resolve()) for f in index_files])
-        
-        # 파일 경로 업데이트 (중복 제거)
+
         existing_pth = set(model_info_json.get("model_files_absolute", []))
         existing_index = set(model_info_json.get("index_files_absolute", []))
-        
+
         new_pth = set(pth_files_absolute)
         new_index = set(index_files_absolute)
-        
-        # 새로 추가된 파일만 로그 출력
+
         added_pth = new_pth - existing_pth
         added_index = new_index - existing_index
-        
+
         if added_pth:
-            logger.info(f"새 모델 파일 감지 및 model_info.json 업데이트: {', '.join(sorted(added_pth))}")
+            logger.info(
+                f"새 모델 파일 감지 및 model_info.json 업데이트: {', '.join(sorted(added_pth))}"
+            )
         if added_index:
-            logger.info(f"새 인덱스 파일 감지 및 model_info.json 업데이트: {', '.join(sorted(added_index))}")
-        
-        # 업데이트된 경로 저장
+            logger.info(
+                f"새 인덱스 파일 감지 및 model_info.json 업데이트: {', '.join(sorted(added_index))}"
+            )
+
         model_info_json["model_files_absolute"] = sorted(list(new_pth))
         model_info_json["index_files_absolute"] = sorted(list(new_index))
-        
-        # 파일 저장
+
         with open(model_info_path, "w", encoding="utf-8") as f:
             json.dump(model_info_json, f, indent=2, ensure_ascii=False)
-        
-        # 새로 추가된 파일이 있을 때만 로그 출력
+
         if added_pth or added_index:
             logger.debug(f"model_info.json 업데이트 완료: {model_info_path}")
-        
+
     except Exception as e:
-        logger.error(f"model_info.json 업데이트 실패: {model_info_path} - {e}", exc_info=True)
+        logger.error(
+            f"model_info.json 업데이트 실패: {model_info_path} - {e}", exc_info=True
+        )
 
 
 async def _remove_preprocess(model_dir):
+    """학습 완료 후 전처리 산출물 정리
+
+    학습 중 생성된 전처리 산출물(특징 추출 파일, 임시 파일 등)을 삭제합니다.
+    모델 파일(.pth), 인덱스 파일(.index), model_info.json은 유지합니다.
+    """
     path = Path(model_dir)
     if not path.exists() or not path.is_dir():
         raise FileNotFoundError(
@@ -162,15 +168,17 @@ async def _remove_preprocess(model_dir):
     def _clean_dir():
         for item in path.iterdir():
             if item.is_file():
-                # .pth, .index, model_info.json 파일은 유지
-                if item.suffix not in [".pth", ".index"] and item.name != "model_info.json":
+                # 모델 파일, 인덱스 파일, 모델 정보 파일은 유지
+                if (
+                    item.suffix not in [".pth", ".index"]
+                    and item.name != "model_info.json"
+                ):
                     try:
                         item.unlink()
                     except Exception as e:
                         logger.warning(f"파일 삭제 실패: {item} - {e}")
             elif item.is_dir():
                 try:
-                    # 폴더 내 모든 내용 삭제 후 폴더 삭제
                     shutil.rmtree(item)
                 except Exception as e:
                     logger.warning(f"폴더 삭제 실패: {item} - {e}")
@@ -188,7 +196,6 @@ async def _remove_file(file_path: str):
     await loop.run_in_executor(None, path.unlink)
 
 
-# 모델 학습 함수, 비동기로 학습 스크립트 호출
 async def train_model(
     model_name: str,
     dataset_path: str,
@@ -220,9 +227,12 @@ async def train_model(
 
     model_dir = _logs_dir(model_name)
     logger.info("Training start | model=%s dataset=%s", model_name, dataset)
-    
-    # 모델 정보 JSON 파일을 학습 시작 전에 생성
+
+    # 학습 시작 전에 model_info.json 생성
+    # 학습 중간에 실패하더라도 모델 정보는 남아있어야 하므로,
+    # 학습 시작 전에 기본 정보를 저장합니다.
     import json
+
     model_info_path = model_dir / "model_info.json"
     model_info_json = {
         "model_name": model_name,
@@ -230,86 +240,92 @@ async def train_model(
         "sample_rate": sample_rate,
         "total_epoch": total_epoch,
         "vocoder": vocoder,
-        "model_files_absolute": [],  # 학습 중 생성되는 파일로 업데이트됨
-        "index_files_absolute": [],  # 학습 중 생성되는 파일로 업데이트됨
+        "model_files_absolute": [],  # 학습 완료 후 _update_model_info_files에서 업데이트
+        "index_files_absolute": [],  # 학습 완료 후 _update_model_info_files에서 업데이트
         "model_description": model_description,
     }
-    
-    # model_dir가 없으면 생성
+
     model_dir.mkdir(parents=True, exist_ok=True)
-    
+
     with open(model_info_path, "w", encoding="utf-8") as f:
         json.dump(model_info_json, f, indent=2, ensure_ascii=False)
     logger.info(f"모델 정보 파일 생성 완료 (학습 시작 전): {model_info_path}")
 
-    # 보컬 분리 수행 (추론과 동일한 방식)
+    # 학습용 오디오 파일 보컬 분리
+    # 추론과 동일하게 보컬만 추출하여 학습 품질을 향상시킵니다.
     logger.info("학습용 오디오 파일 보컬 분리 시작")
     audio_extensions = {".wav", ".mp3", ".flac", ".m4a", ".ogg"}
-    audio_files = [f for f in dataset.iterdir() if f.is_file() and f.suffix.lower() in audio_extensions]
-    
+    audio_files = [
+        f
+        for f in dataset.iterdir()
+        if f.is_file() and f.suffix.lower() in audio_extensions
+    ]
+
     if not audio_files:
         raise ValueError(f"학습용 오디오 파일을 찾을 수 없습니다: {dataset}")
-    
+
     logger.info(f"보컬 분리 대상 파일 수: {len(audio_files)}")
-    
-    # 임시 분리 폴더 생성
+
+    # spleeter가 생성하는 임시 분리 폴더를 위한 디렉토리
     temp_separation_dir = dataset / "temp_separation"
     temp_separation_dir.mkdir(exist_ok=True)
-    
-    separation_folders = []  # 정리용
-    
+
+    separation_folders = []
+
     try:
         for audio_file in audio_files:
             logger.info(f"보컬 분리 중: {audio_file.name}")
             try:
-                # 보컬 분리 수행 (예외 처리 강화)
                 separation_result = await separate_vocal_instrumental(
                     str(audio_file), str(temp_separation_dir)
                 )
                 vocals_path = Path(separation_result["vocals"])
-                
+
                 if not vocals_path.exists():
                     logger.warning(f"보컬 분리 실패: {vocals_path} - 원본 파일 사용")
                     continue
-                
-                # 파일 크기 확인 (0 bytes 체크)
+
+                # 빈 파일 체크: TensorFlow 오류로 인해 파일이 생성되었지만 비어있을 수 있음
                 if vocals_path.stat().st_size == 0:
-                    logger.warning(f"보컬 분리 결과 파일이 비어있음: {vocals_path} - 원본 파일 사용")
+                    logger.warning(
+                        f"보컬 분리 결과 파일이 비어있음: {vocals_path} - 원본 파일 사용"
+                    )
                     continue
-                
-                # 원본 파일을 보컬 파일로 교체 (백업 없이 바로 교체)
-                # 원본 파일 확장자 유지
-                # 보컬 파일을 원본 파일 위치로 복사 (원본 파일 덮어쓰기)
+
+                # 원본 파일을 보컬 파일로 교체
+                # 원본 파일 확장자는 유지하며, 보컬 파일로 덮어쓰기합니다.
+                # 백업은 생성하지 않습니다 (사용자가 원본을 보존하려면 미리 백업해야 함).
                 shutil.copy2(vocals_path, audio_file)
                 logger.info(f"보컬 파일로 교체 완료: {audio_file.name}")
-                
-                # 분리 폴더 기록 (나중에 정리)
+
+                # 나중에 정리하기 위해 분리 폴더 경로 저장
                 separation_folder = vocals_path.parent
                 if separation_folder not in separation_folders:
                     separation_folders.append(separation_folder)
-                
+
             except RuntimeError as e:
-                logger.error(f"보컬 분리 실패 (원본 파일 사용): {audio_file.name} - {e}", exc_info=True)
-                # 보컬 분리 실패 시 원본 파일 그대로 사용
+                logger.error(
+                    f"보컬 분리 실패 (원본 파일 사용): {audio_file.name} - {e}",
+                    exc_info=True,
+                )
             except Exception as e:
                 logger.error(
                     f"보컬 분리 중 예상치 못한 오류 (원본 파일 사용): {audio_file.name} - {e}",
-                    exc_info=True
+                    exc_info=True,
                 )
-                # 보컬 분리 실패 시 원본 파일 그대로 사용
-        
+
         logger.info("학습용 오디오 파일 보컬 분리 완료")
-        
+
     finally:
-        # 임시 분리 폴더 정리
+        # 보컬 분리 성공/실패 여부와 관계없이 임시 파일 정리
         if temp_separation_dir.exists():
             try:
                 await _run_blocking(shutil.rmtree, temp_separation_dir)
                 logger.info(f"임시 분리 폴더 삭제 완료: {temp_separation_dir}")
             except Exception as e:
                 logger.warning(f"임시 분리 폴더 삭제 실패: {temp_separation_dir} - {e}")
-        
-        # 각 파일의 분리 폴더 정리
+
+        # spleeter가 각 파일마다 생성한 분리 폴더 정리
         for sep_folder in separation_folders:
             if sep_folder.exists() and sep_folder.is_dir():
                 try:
@@ -318,7 +334,11 @@ async def train_model(
                 except Exception as e:
                     logger.warning(f"분리 폴더 삭제 실패: {sep_folder} - {e}")
 
-    # prerequisites, preprocess, extract, train 스크립트를 순차 실행
+    # RVC 학습 파이프라인 순차 실행
+    # prerequisites: 의존성 확인 및 초기화
+    # preprocess: 오디오 전처리 (샘플링, 노이즈 제거 등)
+    # extract: 특징 추출 (F0, 임베딩 등)
+    # train: 모델 학습 및 인덱스 생성
     await _run_blocking(run_prerequisites_script, True, True, True)
 
     await _run_blocking(
@@ -373,7 +393,8 @@ async def train_model(
 
     logger.info("Training finished | model=%s dir=%s", model_name, model_dir)
 
-    # 학습이 실제로 완료되었는지 확인 (모델 파일이 생성되었는지 확인)
+    # 학습 완료 검증: 인덱스 파일 생성 여부 확인
+    # 인덱스 파일이 없으면 학습이 제대로 완료되지 않은 것으로 간주
     model_files = list(model_dir.glob("*.index"))
     if not model_files:
         raise RuntimeError(
@@ -381,16 +402,18 @@ async def train_model(
         )
     logger.info(f"생성된 모델 파일 수: {len(model_files)}")
 
-    # 모델 파일과 인덱스 파일의 절대 경로를 model_info.json에 최종 업데이트
+    # 학습 완료 후 생성된 모든 .pth와 .index 파일 경로를 model_info.json에 저장
     _update_model_info_files(model_dir)
 
     # 학습용 데이터셋 및 중간 산출물 정리
+    # 데이터셋 삭제 실패해도 학습은 완료되었으므로 경고만 출력하고 계속 진행
     try:
         await _remove_dataset(dataset_path)
     except Exception as e:
         logger.error(f"데이터셋 삭제 실패: {dataset_path} - {e}")
-        # 데이터셋 삭제 실패 시에도 경고만 하고 계속 진행 (학습은 완료되었으므로)
-        logger.warning("데이터셋 삭제 실패했지만 학습은 완료되었습니다. 수동으로 삭제해주세요.")
+        logger.warning(
+            "데이터셋 삭제 실패했지만 학습은 완료되었습니다. 수동으로 삭제해주세요."
+        )
 
     try:
         await _remove_preprocess(model_dir)
@@ -408,7 +431,6 @@ async def train_model(
     }
 
 
-# 추론 실행 함수, 비동기로 infer 스크립트 호출
 async def run_inference(
     input_audio_path: str,
     model_path: str,
@@ -443,10 +465,9 @@ async def run_inference(
     f0_autotune_strength = defaults.f0_autotune_strength
     embedder_model = defaults.embedder_model
 
-    # 고유 ID 생성
     unique_id = uuid4().hex
 
-    # 정리용 변수 초기화
+    # finally 블록에서 정리하기 위한 변수
     vocals_path = None
     instrumental_path = None
     temp_vocal_output = None
@@ -454,20 +475,27 @@ async def run_inference(
 
     try:
         # 1단계: 보컬/인스트루멘탈 분리
+        # spleeter를 사용하여 입력 오디오를 보컬과 인스트루멘탈로 분리합니다.
+        # 보컬만 변환하여 원본 인스트루멘탈과 합성하면 더 자연스러운 결과를 얻을 수 있습니다.
         logger.info(f"보컬 분리 시작: {input_path}")
         separation_result = await separate_vocal_instrumental(
             str(input_path), str(output_folder)
         )
         vocals_path = Path(separation_result["vocals"])
         instrumental_path = Path(separation_result["instrumental"])
-        separation_folder = vocals_path.parent  # spleeter가 생성한 폴더
+        separation_folder = vocals_path.parent
         logger.info(f"분리 완료 - 보컬: {vocals_path}, 인스트: {instrumental_path}")
 
         # 2단계: 보컬만 inference 실행
+        # 분리된 보컬에만 음성 변환을 적용합니다.
+        # 인스트루멘탈은 원본 그대로 유지하여 음질 손실을 최소화합니다.
         logger.info(f"보컬 inference 시작: {vocals_path}")
         temp_vocal_output = output_folder / f"{unique_id}_vocal_infer.wav"
-        
+
         try:
+            # prerequisites: 의존성 확인 및 초기화
+            await _run_blocking(run_prerequisites_script, True, True, True)
+
             vocal_message, vocal_exported = await _run_blocking(
                 run_infer_script,
                 defaults.pitch,
@@ -497,26 +525,30 @@ async def run_inference(
         except Exception as e:
             logger.error(f"보컬 inference 실행 중 오류 발생: {e}", exc_info=True)
             raise RuntimeError(f"보컬 inference 실패: {str(e)}")
-        
-        # 출력 파일이 실제로 생성되었는지 확인
+
+        # 출력 파일 검증: TensorFlow 오류로 인해 파일이 생성되지 않았거나 비어있을 수 있음
         vocal_exported_path = Path(vocal_exported)
         if not vocal_exported_path.exists() or not vocal_exported_path.is_file():
-            error_msg = f"보컬 inference 출력 파일이 생성되지 않았습니다: {vocal_exported}"
+            error_msg = (
+                f"보컬 inference 출력 파일이 생성되지 않았습니다: {vocal_exported}"
+            )
             logger.error(error_msg)
             raise RuntimeError(error_msg)
-        
-        # 파일 크기가 0인지 확인
+
         if vocal_exported_path.stat().st_size == 0:
             error_msg = f"보컬 inference 출력 파일이 비어있습니다: {vocal_exported}"
             logger.error(error_msg)
             raise RuntimeError(error_msg)
-        
-        logger.info(f"보컬 inference 완료: {vocal_exported} (크기: {vocal_exported_path.stat().st_size} bytes)")
 
-        # 3단계: 변환된 보컬 + 원본 인스트루멘탈 합성
+        logger.info(
+            f"보컬 inference 완료: {vocal_exported} (크기: {vocal_exported_path.stat().st_size} bytes)"
+        )
+
+        # 3단계: 변환된 보컬과 원본 인스트루멘탈 합성
+        # 변환된 보컬과 원본 인스트루멘탈을 믹싱하여 최종 출력을 생성합니다.
         logger.info("오디오 합성 시작")
         final_output = output_folder / f"{unique_id}_final.wav"
-        
+
         try:
             final_output_path = await merge_vocal_instrumental(
                 str(vocal_exported), str(instrumental_path), str(final_output)
@@ -524,23 +556,24 @@ async def run_inference(
         except Exception as e:
             logger.error(f"오디오 합성 중 오류 발생: {e}", exc_info=True)
             raise RuntimeError(f"오디오 합성 실패: {str(e)}")
-        
+
         logger.info(f"최종 합성 완료: {final_output_path}")
 
-        # 최종 출력 파일이 실제로 생성되었는지 확인
+        # 최종 출력 파일 검증
         final_path = Path(final_output_path)
         if not final_path.exists() or not final_path.is_file():
             error_msg = f"최종 출력 파일이 생성되지 않았습니다: {final_output_path}"
             logger.error(error_msg)
             raise RuntimeError(error_msg)
-        
-        # 파일 크기가 0인지 확인
+
         if final_path.stat().st_size == 0:
             error_msg = f"최종 출력 파일이 비어있습니다: {final_output_path}"
             logger.error(error_msg)
             raise RuntimeError(error_msg)
-        
-        logger.info(f"최종 출력 파일 확인 완료: {final_output_path} (크기: {final_path.stat().st_size} bytes)")
+
+        logger.info(
+            f"최종 출력 파일 확인 완료: {final_output_path} (크기: {final_path.stat().st_size} bytes)"
+        )
 
         return {
             "message": f"보컬 분리 → 변환 → 합성 완료 | {vocal_message}",
@@ -554,11 +587,10 @@ async def run_inference(
         }
 
     except Exception as e:
-        # 추론 실패 시 예외를 다시 발생시켜 엔드포인트에서 처리하도록 함
         logger.error(f"추론 처리 중 오류 발생: {e}")
         raise
     finally:
-        # 예외 발생 여부와 관계없이 항상 임시 파일 정리
+        # 성공/실패 여부와 관계없이 임시 파일 정리
         cleanup_paths = [
             vocals_path,
             instrumental_path,
@@ -572,7 +604,7 @@ async def run_inference(
                 except Exception as e:
                     logger.warning(f"임시 파일 삭제 실패: {path} - {e}")
 
-        # spleeter가 생성한 폴더 전체 삭제 (output_dir/temp_inference_xxx/)
+        # spleeter가 생성한 분리 폴더 삭제
         if (
             separation_folder
             and separation_folder.exists()
@@ -584,7 +616,8 @@ async def run_inference(
             except Exception as e:
                 logger.warning(f"임시 추론 폴더 삭제 실패: {separation_folder} - {e}")
 
-        # 입력 오디오 파일이 임시 파일인 경우 삭제 (target_audio 디렉토리의 temp_inference_* 파일)
+        # 업로드된 임시 입력 파일 삭제
+        # target_audio 디렉토리에 저장된 temp_inference_* 파일은 추론 완료 후 삭제합니다.
         input_path_obj = Path(input_audio_path)
         if (
             input_path_obj.exists()
@@ -600,13 +633,17 @@ async def run_inference(
                 )
 
 
-# 보컬 분리 작업을 위한 락 (TensorFlow Graph 충돌 방지)
+# 보컬 분리 작업 동시 실행 제한을 위한 락
+# spleeter는 TensorFlow를 사용하는데, 동시에 여러 작업이 실행되면
+# TensorFlow Graph 중첩 오류가 발생합니다. 락으로 한 번에 하나의 작업만 실행하도록 제한합니다.
 _separation_lock = asyncio.Lock()
 
+
 async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) -> dict:
-    """오디오를 보컬/인스트루멘탈로 분리 (문자열 경로 사용)
-    
-    TensorFlow Graph 충돌을 방지하기 위해 락을 사용하여 동시 실행을 제한합니다.
+    """오디오를 보컬/인스트루멘탈로 분리
+
+    spleeter를 사용하여 입력 오디오를 보컬과 인스트루멘탈로 분리합니다.
+    TensorFlow Graph 충돌 방지를 위해 락을 사용하여 동시 실행을 제한합니다.
     """
     input_path = Path(input_audio_path)
     if not input_path.exists():
@@ -618,43 +655,46 @@ async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) ->
     base_name = input_path.stem
     vocals_path = output_path / base_name / f"vocals.wav"
     instrumental_path = output_path / base_name / f"accompaniment.wav"
-    
-    # 락을 사용하여 동시 실행 제한 (TensorFlow Graph 충돌 방지)
+
+    # 락을 사용하여 동시 실행 제한
+    # TensorFlow Graph 중첩 오류를 방지하기 위해 한 번에 하나의 보컬 분리 작업만 실행합니다.
     async with _separation_lock:
         separation_success = False
         separation_error = None
-        
+
         try:
-            # 별도 스레드에서 실행하여 TensorFlow 컨텍스트 격리
+            # 별도 스레드에서 실행하여 메인 이벤트 루프와 TensorFlow 컨텍스트 격리
             def _separate_audio():
                 # spleeter가 자체적으로 TensorFlow Graph를 관리하므로
-                # 우리가 Graph 컨텍스트를 만들지 않음
-                # 락으로 동시 실행을 제한하여 충돌 방지
+                # 우리가 명시적으로 Graph 컨텍스트를 만들지 않습니다.
+                # 락으로 동시 실행을 제한하여 충돌을 방지합니다.
                 try:
-                    # 각 작업마다 새로운 Separator 인스턴스 생성
+                    # 각 작업마다 새로운 Separator 인스턴스를 생성하여
+                    # 이전 작업의 상태가 영향을 주지 않도록 합니다.
                     separator = Separator("spleeter:2stems")
                     separator.separate_to_file(input_audio_path, output_dir)
                 except Exception as e:
                     logger.error(
                         f"보컬 분리 실행 중 오류 | input={input_audio_path} | error={e}",
-                        exc_info=True
+                        exc_info=True,
                     )
                     raise
-            
+
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, _separate_audio)
             separation_success = True
-            
+
         except Exception as e:
             separation_error = e
             logger.warning(
                 f"보컬 분리 실행 중 예외 발생 (출력 파일 확인 예정) | input={input_audio_path} | error={e}"
             )
-            # 예외가 발생해도 출력 파일이 생성되었는지 확인
-    
-    # 출력 파일 확인 (실제 성공 여부 판단)
+            # TensorFlow 오류가 발생해도 실제로 파일이 생성되었는지 확인합니다.
+
+    # 출력 파일 검증: 실제 성공 여부는 파일 생성 여부로 판단
+    # TensorFlow 오류 메시지가 나와도 파일이 정상적으로 생성되었으면 성공으로 처리합니다.
     if vocals_path.exists() and instrumental_path.exists():
-        # 파일 크기 확인 (0 bytes 체크)
+        # 빈 파일 체크: 파일이 생성되었지만 비어있을 수 있음
         if vocals_path.stat().st_size > 0 and instrumental_path.stat().st_size > 0:
             logger.info(
                 f"보컬 분리 성공 | input={input_audio_path} | "
@@ -671,7 +711,7 @@ async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) ->
             logger.error(error_msg)
             raise RuntimeError(error_msg)
     else:
-        # 출력 파일이 없으면 실패
+        # 출력 파일이 생성되지 않았으면 실패
         error_msg = (
             f"보컬 분리 출력 파일이 생성되지 않았습니다: "
             f"vocals={vocals_path.exists()}, instrumental={instrumental_path.exists()}"
@@ -685,25 +725,30 @@ async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) ->
 async def merge_vocal_instrumental(
     vocals_path: str, instrumental_path: str, output_path: str
 ) -> str:
-    """변환된 보컬과 원본 인스트루멘탈 합성"""
+    """변환된 보컬과 원본 인스트루멘탈 합성
+
+    변환된 보컬과 원본 인스트루멘탈을 믹싱하여 최종 오디오를 생성합니다.
+    샘플링 레이트가 다르면 보컬 기준으로 리샘플링하고, 길이가 다르면 패딩하여 맞춥니다.
+    """
     loop = asyncio.get_running_loop()
 
     def _merge_audio():
         vocals, sr_v = librosa.load(vocals_path, sr=None, mono=True)
         instrumental, sr_i = librosa.load(instrumental_path, sr=None, mono=True)
 
+        # 샘플링 레이트가 다르면 보컬 기준으로 리샘플링
         if sr_v != sr_i:
             instrumental = librosa.resample(instrumental, orig_sr=sr_i, target_sr=sr_v)
             sr_i = sr_v
 
-        # 길이 맞추기
+        # 길이가 다르면 더 긴 쪽에 맞춰 패딩
         max_len = max(len(vocals), len(instrumental))
         vocals = np.pad(vocals, (0, max_len - len(vocals)), "constant")
         instrumental = np.pad(
             instrumental, (0, max_len - len(instrumental)), "constant"
         )
 
-        # 단순 덧셈 합성
+        # 단순 덧셈으로 믹싱
         mixed = vocals + instrumental
 
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
