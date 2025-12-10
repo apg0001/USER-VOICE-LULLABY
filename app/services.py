@@ -409,48 +409,81 @@ async def run_inference(
         # 2단계: 보컬만 inference 실행
         logger.info(f"보컬 inference 시작: {vocals_path}")
         temp_vocal_output = output_folder / f"{unique_id}_vocal_infer.wav"
-        vocal_message, vocal_exported = await _run_blocking(
-            run_infer_script,
-            defaults.pitch,
-            index_rate,
-            volume_envelope,
-            protect,
-            defaults.f0_method,
-            str(vocals_path),
-            str(temp_vocal_output),
-            str(model_file),
-            str(idx_path) if idx_path else "",
-            defaults.split_audio,
-            f0_autotune,
-            f0_autotune_strength,
-            defaults.proposed_pitch,
-            defaults.proposed_pitch_threshold,
-            defaults.clean_audio,
-            defaults.clean_strength,
-            defaults.export_format,
-            embedder_model,
-            None,
-            defaults.formant_shifting,
-            defaults.formant_qfrency,
-            defaults.formant_timbre,
-            defaults.post_process,
-        )
-        logger.info(f"보컬 inference 완료: {vocal_exported}")
+        
+        try:
+            vocal_message, vocal_exported = await _run_blocking(
+                run_infer_script,
+                defaults.pitch,
+                index_rate,
+                volume_envelope,
+                protect,
+                defaults.f0_method,
+                str(vocals_path),
+                str(temp_vocal_output),
+                str(model_file),
+                str(idx_path) if idx_path else "",
+                defaults.split_audio,
+                f0_autotune,
+                f0_autotune_strength,
+                defaults.proposed_pitch,
+                defaults.proposed_pitch_threshold,
+                defaults.clean_audio,
+                defaults.clean_strength,
+                defaults.export_format,
+                embedder_model,
+                None,
+                defaults.formant_shifting,
+                defaults.formant_qfrency,
+                defaults.formant_timbre,
+                defaults.post_process,
+            )
+        except Exception as e:
+            logger.error(f"보컬 inference 실행 중 오류 발생: {e}", exc_info=True)
+            raise RuntimeError(f"보컬 inference 실패: {str(e)}")
+        
+        # 출력 파일이 실제로 생성되었는지 확인
+        vocal_exported_path = Path(vocal_exported)
+        if not vocal_exported_path.exists() or not vocal_exported_path.is_file():
+            error_msg = f"보컬 inference 출력 파일이 생성되지 않았습니다: {vocal_exported}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+        
+        # 파일 크기가 0인지 확인
+        if vocal_exported_path.stat().st_size == 0:
+            error_msg = f"보컬 inference 출력 파일이 비어있습니다: {vocal_exported}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+        
+        logger.info(f"보컬 inference 완료: {vocal_exported} (크기: {vocal_exported_path.stat().st_size} bytes)")
 
         # 3단계: 변환된 보컬 + 원본 인스트루멘탈 합성
         logger.info("오디오 합성 시작")
         final_output = output_folder / f"{unique_id}_final.wav"
-        final_output_path = await merge_vocal_instrumental(
-            str(vocal_exported), str(instrumental_path), str(final_output)
-        )
+        
+        try:
+            final_output_path = await merge_vocal_instrumental(
+                str(vocal_exported), str(instrumental_path), str(final_output)
+            )
+        except Exception as e:
+            logger.error(f"오디오 합성 중 오류 발생: {e}", exc_info=True)
+            raise RuntimeError(f"오디오 합성 실패: {str(e)}")
+        
         logger.info(f"최종 합성 완료: {final_output_path}")
 
         # 최종 출력 파일이 실제로 생성되었는지 확인
         final_path = Path(final_output_path)
         if not final_path.exists() or not final_path.is_file():
-            raise RuntimeError(
-                f"최종 출력 파일이 생성되지 않았습니다: {final_output_path}"
-            )
+            error_msg = f"최종 출력 파일이 생성되지 않았습니다: {final_output_path}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+        
+        # 파일 크기가 0인지 확인
+        if final_path.stat().st_size == 0:
+            error_msg = f"최종 출력 파일이 비어있습니다: {final_output_path}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+        
+        logger.info(f"최종 출력 파일 확인 완료: {final_output_path} (크기: {final_path.stat().st_size} bytes)")
 
         return {
             "message": f"보컬 분리 → 변환 → 합성 완료 | {vocal_message}",
