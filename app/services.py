@@ -4,6 +4,7 @@ import asyncio
 import os
 import shutil
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 from uuid import uuid4
@@ -633,10 +634,11 @@ async def run_inference(
                 )
 
 
-# 보컬 분리 작업 동시 실행 제한을 위한 락
-# spleeter는 TensorFlow를 사용하는데, 동시에 여러 작업이 실행되면
-# TensorFlow Graph 중첩 오류가 발생합니다. 락으로 한 번에 하나의 작업만 실행하도록 제한합니다.
+# 보컬 분리 작업 동시 실행 제한
+# spleeter는 TensorFlow를 사용하는데, TensorFlow는 스레드 안전하지 않습니다.
+# 전용 스레드 풀(max_workers=1)을 사용하여 한 번에 하나의 작업만 실행되도록 제한합니다.
 _separation_lock = asyncio.Lock()
+_separation_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="spleeter")
 
 
 async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) -> dict:
@@ -680,8 +682,10 @@ async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) ->
                     )
                     raise
 
+            # 전용 스레드 풀 사용: max_workers=1로 설정하여 한 번에 하나의 작업만 실행
+            # TensorFlow Graph 충돌을 완전히 방지하기 위해 스레드 레벨에서도 제한합니다.
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, _separate_audio)
+            await loop.run_in_executor(_separation_executor, _separate_audio)
             separation_success = True
 
         except Exception as e:
