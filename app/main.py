@@ -3,9 +3,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response as StarletteResponse
 
 from .dependencies import get_inference_queue, get_train_queue
 from .logging_config import configure_logging, get_logger
@@ -31,8 +33,26 @@ app = FastAPI(
 APP_DIR = Path(__file__).resolve().parent
 PUBLIC_DIR = APP_DIR / "public"
 
+
+class NoCacheStaticFiles(StaticFiles):
+    """캐시 방지 헤더를 추가하는 정적 파일 서빙 클래스"""
+
+    async def __call__(self, scope, receive, send):
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                # 정적 파일 응답에 캐시 방지 헤더 추가
+                headers = dict(message.get("headers", []))
+                headers[b"cache-control"] = b"no-cache, no-store, must-revalidate"
+                headers[b"pragma"] = b"no-cache"
+                headers[b"expires"] = b"0"
+                message["headers"] = list(headers.items())
+            await send(message)
+
+        await super().__call__(scope, receive, send_wrapper)
+
+
 if PUBLIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=PUBLIC_DIR), name="static")
+    app.mount("/static", NoCacheStaticFiles(directory=PUBLIC_DIR), name="static")
 
 
 # 라우터 등록
@@ -66,9 +86,17 @@ async def _on_shutdown() -> None:
 
 @app.get("/ui", include_in_schema=False)
 async def serve_ui():
-    """UI 정적 페이지 제공"""
+    """UI 정적 페이지 제공 (캐시 방지)"""
     index_path = PUBLIC_DIR / "index.html"
     if not index_path.exists():
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="정적 UI 파일을 찾을 수 없습니다.")
-    return FileResponse(index_path)
+    # 캐시 방지 헤더 추가
+    return FileResponse(
+        index_path,
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
