@@ -581,19 +581,13 @@ async def run_inference(
 
         # 3단계: 변환된 보컬과 원본 인스트루멘탈 합성
         # 변환된 보컬과 원본 인스트루멘탈을 믹싱하여 최종 출력을 생성합니다.
-        # 입력 파일의 샘플링 레이트를 확인하여 출력 파일도 같은 레이트로 저장합니다.
         logger.info("오디오 합성 시작")
-        
-        # 입력 파일의 샘플링 레이트 확인
-        input_audio_info = sf.info(str(input_path))
-        input_sample_rate = int(input_audio_info.samplerate)
-        logger.info(f"입력 파일 샘플링 레이트: {input_sample_rate} Hz")
         
         final_output = output_folder / f"{unique_id}_final.wav"
 
         try:
             final_output_path = await merge_vocal_instrumental(
-                str(vocal_exported), str(instrumental_path), str(final_output), input_sample_rate
+                str(vocal_exported), str(instrumental_path), str(final_output)
             )
         except Exception as e:
             logger.error(f"오디오 합성 중 오류 발생: {e}", exc_info=True)
@@ -773,7 +767,6 @@ async def merge_vocal_instrumental(
     """변환된 보컬과 원본 인스트루멘탈 합성
 
     변환된 보컬과 원본 인스트루멘탈을 믹싱하여 최종 오디오를 생성합니다.
-    target_sample_rate가 지정되면 해당 레이트로 리샘플링하여 저장합니다.
     샘플링 레이트가 다르면 보컬 기준으로 리샘플링하고, 길이가 다르면 패딩하여 맞춥니다.
     """
     loop = asyncio.get_running_loop()
@@ -796,13 +789,6 @@ async def merge_vocal_instrumental(
 
         # 단순 덧셈으로 믹싱
         mixed = vocals + instrumental
-
-        # target_sample_rate가 지정되면 해당 레이트로 리샘플링
-        # 입력 파일과 같은 샘플링 레이트로 저장하여 파일 크기를 줄입니다.
-        if target_sample_rate and sr_v != target_sample_rate:
-            mixed = librosa.resample(mixed, orig_sr=sr_v, target_sr=target_sample_rate)
-            sr_v = target_sample_rate
-            logger.info(f"출력 파일 샘플링 레이트 조정: {sr_v} Hz → {target_sample_rate} Hz")
 
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         sf.write(output_path, mixed, sr_v)
