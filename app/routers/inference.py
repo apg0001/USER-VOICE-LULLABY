@@ -32,6 +32,15 @@ async def start_inference(
     f0_autotune_strength: Optional[float] = Form(None),
     embedder_model: Optional[str] = Form(None),
     index_rate: Optional[float] = Form(None),
+    clean_audio: Optional[bool] = Form(None),
+    clean_strength: Optional[float] = Form(None),
+    reverb: Optional[bool] = Form(None),
+    reverb_room_size: Optional[float] = Form(None),
+    reverb_damping: Optional[float] = Form(None),
+    reverb_wet_gain: Optional[float] = Form(None),
+    reverb_dry_gain: Optional[float] = Form(None),
+    reverb_width: Optional[float] = Form(None),
+    reverb_freeze_mode: Optional[float] = Form(None),
     inference_service: InferenceService = Depends(get_inference_service),
     inference_queue: AsyncJobQueue = Depends(get_inference_queue),
     file_repo: FileRepository = Depends(get_file_repository),
@@ -56,11 +65,24 @@ async def start_inference(
     f0_autotune_strength = f0_autotune_strength if f0_autotune_strength is not None else INFERENCE_DEFAULTS.f0_autotune_strength
     embedder_model = embedder_model if embedder_model is not None else INFERENCE_DEFAULTS.embedder_model
     index_rate = index_rate if index_rate is not None else INFERENCE_DEFAULTS.index_rate
+    clean_audio = clean_audio if clean_audio is not None else INFERENCE_DEFAULTS.clean_audio
+    clean_strength = clean_strength if clean_strength is not None else INFERENCE_DEFAULTS.clean_strength
+    reverb = reverb if reverb is not None else INFERENCE_DEFAULTS.reverb
+    reverb_room_size = reverb_room_size if reverb_room_size is not None else INFERENCE_DEFAULTS.reverb_room_size
+    reverb_damping = reverb_damping if reverb_damping is not None else INFERENCE_DEFAULTS.reverb_damping
+    reverb_wet_gain = reverb_wet_gain if reverb_wet_gain is not None else INFERENCE_DEFAULTS.reverb_wet_gain
+    reverb_dry_gain = reverb_dry_gain if reverb_dry_gain is not None else INFERENCE_DEFAULTS.reverb_dry_gain
+    reverb_width = reverb_width if reverb_width is not None else INFERENCE_DEFAULTS.reverb_width
+    reverb_freeze_mode = reverb_freeze_mode if reverb_freeze_mode is not None else INFERENCE_DEFAULTS.reverb_freeze_mode
     
     logger.debug(
         f"추론 파라미터 | model_path={model_path} | index_path={index_path} | "
         f"output_dir={output_dir} | volume_envelope={volume_envelope} | protect={protect} | "
-        f"f0_autotune={f0_autotune} | embedder_model={embedder_model} | index_rate={index_rate}"
+        f"f0_autotune={f0_autotune} | embedder_model={embedder_model} | index_rate={index_rate} | "
+        f"clean_audio={clean_audio} | clean_strength={clean_strength} | reverb={reverb} | "
+        f"reverb_room_size={reverb_room_size} | reverb_damping={reverb_damping} | "
+        f"reverb_wet_gain={reverb_wet_gain} | reverb_dry_gain={reverb_dry_gain} | "
+        f"reverb_width={reverb_width} | reverb_freeze_mode={reverb_freeze_mode}"
     )
 
     try:
@@ -81,6 +103,15 @@ async def start_inference(
             f0_autotune_strength=f0_autotune_strength,
             embedder_model=embedder_model,
             index_rate=index_rate,
+            clean_audio=clean_audio,
+            clean_strength=clean_strength,
+            reverb=reverb,
+            reverb_room_size=reverb_room_size,
+            reverb_damping=reverb_damping,
+            reverb_wet_gain=reverb_wet_gain,
+            reverb_dry_gain=reverb_dry_gain,
+            reverb_width=reverb_width,
+            reverb_freeze_mode=reverb_freeze_mode,
         )
 
         # 비동기 작업 등록
@@ -98,7 +129,11 @@ async def start_inference(
             f"추론 작업 등록 완료 | job_id={job_id} | model_path={model_path} | "
             f"index_path={index_path} | output_dir={output_dir} | "
             f"volume_envelope={volume_envelope} | protect={protect} | "
-            f"f0_autotune={f0_autotune} | embedder_model={embedder_model} | index_rate={index_rate}"
+            f"f0_autotune={f0_autotune} | embedder_model={embedder_model} | index_rate={index_rate} | "
+            f"clean_audio={clean_audio} | clean_strength={clean_strength} | reverb={reverb} | "
+            f"reverb_room_size={reverb_room_size} | reverb_damping={reverb_damping} | "
+            f"reverb_wet_gain={reverb_wet_gain} | reverb_dry_gain={reverb_dry_gain} | "
+            f"reverb_width={reverb_width} | reverb_freeze_mode={reverb_freeze_mode}"
         )
 
         return {"status": "queued", "job_id": job_id}

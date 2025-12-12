@@ -36,3 +36,12 @@ class InferenceFilesRequest(BaseModel):
     f0_autotune_strength: Optional[float] = None
     embedder_model: Optional[str] = None
     index_rate: Optional[float] = None
+    clean_audio: Optional[bool] = None
+    clean_strength: Optional[float] = None
+    reverb: Optional[bool] = None
+    reverb_room_size: Optional[float] = None
+    reverb_damping: Optional[float] = None
+    reverb_wet_gain: Optional[float] = None
+    reverb_dry_gain: Optional[float] = None
+    reverb_width: Optional[float] = None
+    reverb_freeze_mode: Optional[float] = None

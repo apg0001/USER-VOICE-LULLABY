@@ -93,6 +93,13 @@ class InferenceDefaults:
     formant_qfrency: float = 1.0
     formant_timbre: float = 1.0
     post_process: bool = False
+    reverb: bool = False
+    reverb_room_size: float = 0.5
+    reverb_damping: float = 0.5
+    reverb_wet_gain: float = 0.5
+    reverb_dry_gain: float = 0.5
+    reverb_width: float = 0.5
+    reverb_freeze_mode: float = 0.5
 
 
 TRAINING_DEFAULTS = TrainingDefaults()

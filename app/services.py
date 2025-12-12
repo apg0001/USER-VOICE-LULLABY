@@ -443,6 +443,15 @@ async def run_inference(
     f0_autotune_strength: Optional[float] = None,
     embedder_model: Optional[str] = None,
     index_rate: Optional[float] = None,
+    clean_audio: Optional[bool] = None,
+    clean_strength: Optional[float] = None,
+    reverb: Optional[bool] = None,
+    reverb_room_size: Optional[float] = None,
+    reverb_damping: Optional[float] = None,
+    reverb_wet_gain: Optional[float] = None,
+    reverb_dry_gain: Optional[float] = None,
+    reverb_width: Optional[float] = None,
+    reverb_freeze_mode: Optional[float] = None,
 ) -> dict:
     defaults = INFERENCE_DEFAULTS
     input_path = _resolve_path(input_audio_path, RVC_ROOT)
@@ -465,6 +474,15 @@ async def run_inference(
     f0_autotune = f0_autotune or defaults.f0_autotune
     f0_autotune_strength = defaults.f0_autotune_strength
     embedder_model = defaults.embedder_model
+    clean_audio = clean_audio if clean_audio is not None else defaults.clean_audio
+    clean_strength = clean_strength if clean_strength is not None else defaults.clean_strength
+    reverb = reverb if reverb is not None else defaults.reverb
+    reverb_room_size = reverb_room_size if reverb_room_size is not None else defaults.reverb_room_size
+    reverb_damping = reverb_damping if reverb_damping is not None else defaults.reverb_damping
+    reverb_wet_gain = reverb_wet_gain if reverb_wet_gain is not None else defaults.reverb_wet_gain
+    reverb_dry_gain = reverb_dry_gain if reverb_dry_gain is not None else defaults.reverb_dry_gain
+    reverb_width = reverb_width if reverb_width is not None else defaults.reverb_width
+    reverb_freeze_mode = reverb_freeze_mode if reverb_freeze_mode is not None else defaults.reverb_freeze_mode
 
     unique_id = uuid4().hex
 
@@ -513,8 +531,8 @@ async def run_inference(
                 f0_autotune_strength,
                 defaults.proposed_pitch,
                 defaults.proposed_pitch_threshold,
-                defaults.clean_audio,
-                defaults.clean_strength,
+                clean_audio,
+                clean_strength,
                 defaults.export_format,
                 embedder_model,
                 None,
@@ -522,6 +540,22 @@ async def run_inference(
                 defaults.formant_qfrency,
                 defaults.formant_timbre,
                 defaults.post_process,
+                reverb,
+                False,  # pitch_shift
+                False,  # limiter
+                False,  # gain
+                False,  # distortion
+                False,  # chorus
+                False,  # bitcrush
+                False,  # clipping
+                False,  # compressor
+                False,  # delay
+                reverb_room_size,
+                reverb_damping,
+                reverb_wet_gain,
+                reverb_dry_gain,
+                reverb_width,
+                reverb_freeze_mode,
             )
         except Exception as e:
             logger.error(f"보컬 inference 실행 중 오류 발생: {e}", exc_info=True)
