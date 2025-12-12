@@ -589,6 +589,45 @@ document
       if (form.index_rate.value.trim().length > 0) {
         formData.append("index_rate", form.index_rate.value);
       }
+      if (form.clean_audio && form.clean_audio.checked) {
+        formData.append("clean_audio", "true");
+      }
+      if (form.clean_strength && form.clean_strength.value.trim().length > 0) {
+        formData.append("clean_strength", form.clean_strength.value);
+      }
+      if (form.reverb && form.reverb.checked) {
+        formData.append("reverb", "true");
+      }
+      if (
+        form.reverb_room_size &&
+        form.reverb_room_size.value.trim().length > 0
+      ) {
+        formData.append("reverb_room_size", form.reverb_room_size.value);
+      }
+      if (form.reverb_damping && form.reverb_damping.value.trim().length > 0) {
+        formData.append("reverb_damping", form.reverb_damping.value);
+      }
+      if (
+        form.reverb_wet_gain &&
+        form.reverb_wet_gain.value.trim().length > 0
+      ) {
+        formData.append("reverb_wet_gain", form.reverb_wet_gain.value);
+      }
+      if (
+        form.reverb_dry_gain &&
+        form.reverb_dry_gain.value.trim().length > 0
+      ) {
+        formData.append("reverb_dry_gain", form.reverb_dry_gain.value);
+      }
+      if (form.reverb_width && form.reverb_width.value.trim().length > 0) {
+        formData.append("reverb_width", form.reverb_width.value);
+      }
+      if (
+        form.reverb_freeze_mode &&
+        form.reverb_freeze_mode.value.trim().length > 0
+      ) {
+        formData.append("reverb_freeze_mode", form.reverb_freeze_mode.value);
+      }
       if (form.embedder_model.value.trim().length > 0) {
         formData.append("embedder_model", form.embedder_model.value);
       }
@@ -801,6 +840,16 @@ window.cancelJob = async (queueName, jobId) => {
     alert(`작업 취소 실패: ${error.message || error}`);
   }
 };
+
+// Reverb 체크박스에 따라 파라미터 입력 필드 표시/숨김
+const reverbCheckbox = document.querySelector('input[name="reverb"]');
+const reverbParams = document.getElementById("reverb-params");
+
+if (reverbCheckbox && reverbParams) {
+  reverbCheckbox.addEventListener("change", () => {
+    reverbParams.style.display = reverbCheckbox.checked ? "block" : "none";
+  });
+}
 
 // 페이지 로드 시 초기 조회
 refreshJobsList();
