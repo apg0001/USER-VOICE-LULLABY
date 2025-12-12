@@ -16,7 +16,7 @@ const formatBytes = (bytes) => {
   const k = 1024;
   const sizes = ["Bytes", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + " " + sizes[i];
+  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
 };
 
 const formatDate = (dateString) => {
@@ -38,24 +38,24 @@ const loadModels = async () => {
     if (!response.ok) throw new Error("모델 리스트 조회 실패");
     const models = await response.json();
     modelsCache = models;
-    
+
     // 모델 드롭다운 업데이트
     const modelSelect = document.getElementById("model-select");
     const indexSelect = document.getElementById("index-select");
-    
+
     modelSelect.innerHTML = '<option value="">모델을 선택하세요</option>';
     indexSelect.innerHTML = '<option value="">인덱스 파일 없음</option>';
-    
+
     models.forEach((model) => {
       const option = document.createElement("option");
       option.value = model.model_id;
       option.textContent = `${model.model_id} (${model.model_files.length}개 파일)`;
       modelSelect.appendChild(option);
     });
-    
+
     // 사전 학습 모델 드롭다운 업데이트
     updatePretrainedModelDropdowns();
-    
+
     return models;
   } catch (error) {
     console.error("모델 로드 실패:", error);
@@ -69,23 +69,23 @@ document.getElementById("model-select").addEventListener("change", (e) => {
   const modelPathInput = document.getElementById("model-path-input");
   const indexSelect = document.getElementById("index-select");
   const indexPathInput = document.getElementById("index-path-input");
-  
+
   if (!modelId) {
     modelPathInput.value = "";
     indexSelect.innerHTML = '<option value="">인덱스 파일 없음</option>';
     indexPathInput.value = "";
     return;
   }
-  
+
   const model = modelsCache.find((m) => m.model_id === modelId);
   if (!model) return;
-  
+
   // 첫 번째 모델 파일 자동 선택 (전체 경로 구성: logs/{model_id}/{filename})
   if (model.model_files.length > 0) {
     const modelFileName = model.model_files[0];
     modelPathInput.value = `logs/${modelId}/${modelFileName}`;
   }
-  
+
   // 인덱스 파일 드롭다운 업데이트
   indexSelect.innerHTML = '<option value="">인덱스 파일 없음</option>';
   model.index_files.forEach((indexFile) => {
@@ -102,13 +102,13 @@ document.getElementById("model-select").addEventListener("change", (e) => {
 const updatePretrainedModelDropdowns = () => {
   const gSelect = document.getElementById("g-pretrained-select");
   const dSelect = document.getElementById("d-pretrained-select");
-  
+
   if (!gSelect || !dSelect) return;
-  
+
   // 기존 옵션 초기화 (첫 번째 옵션 제외)
   gSelect.innerHTML = '<option value="">모델을 선택하세요</option>';
   dSelect.innerHTML = '<option value="">모델을 선택하세요</option>';
-  
+
   // 모델 리스트를 순회하며 .pth 파일들을 드롭다운에 추가
   modelsCache.forEach((model) => {
     // 절대 경로 사용
@@ -135,28 +135,35 @@ const updatePretrainedModelDropdowns = () => {
 };
 
 // Custom Pretrained 선택 시 사전 학습 모델 그룹 표시/숨김
-document.getElementById("custom-pretrained-select")?.addEventListener("change", (e) => {
-  const pretrainedGroup = document.getElementById("pretrained-model-group");
-  if (pretrainedGroup) {
-    pretrainedGroup.style.display = e.target.value === "true" ? "block" : "none";
-  }
-});
+document
+  .getElementById("custom-pretrained-select")
+  ?.addEventListener("change", (e) => {
+    const pretrainedGroup = document.getElementById("pretrained-model-group");
+    if (pretrainedGroup) {
+      pretrainedGroup.style.display =
+        e.target.value === "true" ? "block" : "none";
+    }
+  });
 
 // G 사전 학습 모델 선택 시 경로 업데이트
-document.getElementById("g-pretrained-select")?.addEventListener("change", (e) => {
-  const pathInput = document.getElementById("g-pretrained-path-input");
-  if (pathInput && e.target.value) {
-    pathInput.value = e.target.value;
-  }
-});
+document
+  .getElementById("g-pretrained-select")
+  ?.addEventListener("change", (e) => {
+    const pathInput = document.getElementById("g-pretrained-path-input");
+    if (pathInput && e.target.value) {
+      pathInput.value = e.target.value;
+    }
+  });
 
 // D 사전 학습 모델 선택 시 경로 업데이트
-document.getElementById("d-pretrained-select")?.addEventListener("change", (e) => {
-  const pathInput = document.getElementById("d-pretrained-path-input");
-  if (pathInput && e.target.value) {
-    pathInput.value = e.target.value;
-  }
-});
+document
+  .getElementById("d-pretrained-select")
+  ?.addEventListener("change", (e) => {
+    const pathInput = document.getElementById("d-pretrained-path-input");
+    if (pathInput && e.target.value) {
+      pathInput.value = e.target.value;
+    }
+  });
 
 // 인덱스 파일 선택 시 인덱스 경로 업데이트
 document.getElementById("index-select").addEventListener("change", (e) => {
@@ -168,12 +175,12 @@ document.getElementById("index-select").addEventListener("change", (e) => {
 // 모델 리스트를 테이블로 표시
 const renderModelsTable = (models) => {
   const container = document.getElementById("models-list-container");
-  
+
   if (!models || models.length === 0) {
     container.innerHTML = '<div class="empty-state">모델이 없습니다</div>';
     return;
   }
-  
+
   let html = `
     <table class="data-table">
       <thead>
@@ -193,7 +200,7 @@ const renderModelsTable = (models) => {
       </thead>
       <tbody>
   `;
-  
+
   models.forEach((model) => {
     const modelId = encodeURIComponent(model.model_id);
     const modelName = model.model_name || "-";
@@ -201,17 +208,19 @@ const renderModelsTable = (models) => {
     const sampleRate = model.sample_rate ? `${model.sample_rate}Hz` : "-";
     const totalEpoch = model.total_epoch || "-";
     const vocoder = model.vocoder || "-";
-    
+
     // 절대 경로 표시 (여러 개일 경우 줄바꿈으로 표시)
-    const modelFilesAbsolute = model.model_files_absolute && model.model_files_absolute.length > 0
-      ? model.model_files_absolute.join("<br>")
-      : model.model_files.map(f => f.split("/").pop()).join("<br>") || "-";
-    const indexFilesAbsolute = model.index_files_absolute && model.index_files_absolute.length > 0
-      ? model.index_files_absolute.join("<br>")
-      : model.index_files.map(f => f.split("/").pop()).join("<br>") || "-";
-    
+    const modelFilesAbsolute =
+      model.model_files_absolute && model.model_files_absolute.length > 0
+        ? model.model_files_absolute.join("<br>")
+        : model.model_files.map((f) => f.split("/").pop()).join("<br>") || "-";
+    const indexFilesAbsolute =
+      model.index_files_absolute && model.index_files_absolute.length > 0
+        ? model.index_files_absolute.join("<br>")
+        : model.index_files.map((f) => f.split("/").pop()).join("<br>") || "-";
+
     const modelDescription = model.model_description || "-";
-    
+
     html += `
       <tr>
         <td><strong>${model.model_id}</strong></td>
@@ -226,30 +235,32 @@ const renderModelsTable = (models) => {
         <td>${formatDate(model.created_at)}</td>
         <td>
           <div class="file-actions">
-            <button onclick="deleteModel('${modelId}', '${model.model_id}')" style="background: #ef4444;">삭제</button>
+            <button onclick="deleteModel('${modelId}', '${
+      model.model_id
+    }')" style="background: #ef4444;">삭제</button>
           </div>
         </td>
       </tr>
     `;
   });
-  
+
   html += `
       </tbody>
     </table>
   `;
-  
+
   container.innerHTML = html;
 };
 
 // 추론 결과 리스트를 테이블로 표시
 const renderOutputsTable = (outputs) => {
   const container = document.getElementById("outputs-list-container");
-  
+
   if (!outputs || outputs.length === 0) {
     container.innerHTML = '<div class="empty-state">추론 결과가 없습니다</div>';
     return;
   }
-  
+
   let html = `
     <table class="data-table">
       <thead>
@@ -262,13 +273,13 @@ const renderOutputsTable = (outputs) => {
       </thead>
       <tbody>
   `;
-  
+
   outputs.forEach((output) => {
     const fileName = output.output_id;
     const fileSize = formatBytes(output.file_size);
     const createdAt = formatDate(output.created_at);
     const outputId = encodeURIComponent(output.output_id);
-    
+
     html += `
       <tr>
         <td>
@@ -288,7 +299,7 @@ const renderOutputsTable = (outputs) => {
       </tr>
     `;
   });
-  
+
   html += `
       </tbody>
     </table>
@@ -296,9 +307,9 @@ const renderOutputsTable = (outputs) => {
       <audio id="audio-player" class="audio-player" controls></audio>
     </div>
   `;
-  
+
   container.innerHTML = html;
-  
+
   // 파일명 클릭 이벤트 (다운로드)
   container.querySelectorAll(".file-link").forEach((link) => {
     link.addEventListener("click", (e) => {
@@ -324,7 +335,7 @@ window.downloadOutput = (outputId, fileName) => {
 window.playOutput = (outputId, fileName) => {
   const container = document.getElementById("audio-player-container");
   const player = document.getElementById("audio-player");
-  
+
   if (container && player) {
     const url = `/outputs/${outputId}/download`;
     player.src = url;
@@ -341,19 +352,19 @@ window.deleteModel = async (modelId, modelName) => {
   if (!confirm(`모델 "${modelName}"을(를) 삭제하시겠습니까?`)) {
     return;
   }
-  
+
   try {
     const response = await fetch(`/models/${modelId}`, {
       method: "DELETE",
     });
-    
+
     if (!response.ok) {
       const data = await response.json();
       throw new Error(data.detail || "모델 삭제 실패");
     }
-    
+
     alert("모델이 삭제되었습니다.");
-    
+
     // 삭제 후 리스트 새로고침
     setTimeout(() => {
       refreshModels();
@@ -370,19 +381,19 @@ window.deleteOutput = async (outputId, fileName) => {
   if (!confirm(`파일 "${fileName}"을(를) 삭제하시겠습니까?`)) {
     return;
   }
-  
+
   try {
     const response = await fetch(`/outputs/${outputId}`, {
       method: "DELETE",
     });
-    
+
     if (!response.ok) {
       const data = await response.json();
       throw new Error(data.detail || "출력 파일 삭제 실패");
     }
-    
+
     alert("출력 파일이 삭제되었습니다.");
-    
+
     // 삭제 후 리스트 새로고침
     setTimeout(() => {
       refreshOutputs();
@@ -416,7 +427,9 @@ const refreshModels = async () => {
 };
 
 document.getElementById("models-btn").addEventListener("click", refreshModels);
-document.getElementById("models-refresh-btn").addEventListener("click", refreshModels);
+document
+  .getElementById("models-refresh-btn")
+  .addEventListener("click", refreshModels);
 
 // 페이지 로드 시 모델 리스트 자동 로드
 loadModels();
@@ -433,9 +446,12 @@ const refreshOutputs = async () => {
   }
 };
 
-document.getElementById("outputs-btn").addEventListener("click", refreshOutputs);
-document.getElementById("outputs-refresh-btn").addEventListener("click", refreshOutputs);
-
+document
+  .getElementById("outputs-btn")
+  .addEventListener("click", refreshOutputs);
+document
+  .getElementById("outputs-refresh-btn")
+  .addEventListener("click", refreshOutputs);
 
 // 학습 파일 업로드
 document
@@ -463,23 +479,37 @@ document
         formData.append("vocoder", form.vocoder.value);
       }
       if (form.overtraining_detector.value.trim().length > 0) {
-        formData.append("overtraining_detector", form.overtraining_detector.value === "true");
+        formData.append(
+          "overtraining_detector",
+          form.overtraining_detector.value === "true"
+        );
       }
       if (form.custom_pretrained.value.trim().length > 0) {
-        formData.append("custom_pretrained", form.custom_pretrained.value === "true");
+        formData.append(
+          "custom_pretrained",
+          form.custom_pretrained.value === "true"
+        );
       }
       // 사전 학습 모델 경로: 드롭다운에서 선택한 값 또는 직접 입력한 값
-      const gPretrainedPath = form.g_pretrained_select?.value || form.g_pretrained_path?.value || "";
+      const gPretrainedPath =
+        form.g_pretrained_select?.value || form.g_pretrained_path?.value || "";
       if (gPretrainedPath.trim().length > 0) {
         formData.append("g_pretrained_path", gPretrainedPath);
       }
-      const dPretrainedPath = form.d_pretrained_select?.value || form.d_pretrained_path?.value || "";
+      const dPretrainedPath =
+        form.d_pretrained_select?.value || form.d_pretrained_path?.value || "";
       if (dPretrainedPath.trim().length > 0) {
         formData.append("d_pretrained_path", dPretrainedPath);
       }
       // 모델 설명 추가
-      if (form.model_description && form.model_description.value.trim().length > 0) {
-        formData.append("model_description", form.model_description.value.trim());
+      if (
+        form.model_description &&
+        form.model_description.value.trim().length > 0
+      ) {
+        formData.append(
+          "model_description",
+          form.model_description.value.trim()
+        );
       }
 
       // multiple 파일들 추가
@@ -526,7 +556,7 @@ document
     try {
       const formData = new FormData();
       formData.append("target_audio", form.target_audio.files[0]);
-      
+
       // 모델 경로: 드롭다운에서 선택한 값 또는 직접 입력한 값
       const modelPath = form.model_path.value.trim();
       if (!modelPath) {
@@ -551,7 +581,10 @@ document
         formData.append("f0_autotune", "true");
       }
       if (form.f0_autotune_strength.value.trim().length > 0) {
-        formData.append("f0_autotune_strength", form.f0_autotune_strength.value);
+        formData.append(
+          "f0_autotune_strength",
+          form.f0_autotune_strength.value
+        );
       }
       if (form.index_rate.value.trim().length > 0) {
         formData.append("index_rate", form.index_rate.value);
@@ -580,7 +613,7 @@ document
           refreshJobsList();
         }, 500);
       }
-      
+
       // 추론 완료 후 결과 리스트 새로고침
       setTimeout(() => {
         refreshOutputs();
@@ -594,12 +627,12 @@ document
 const renderJobsTable = (jobs) => {
   const container = document.getElementById("jobs-list-container");
   const queueName = document.getElementById("queue-select").value;
-  
+
   if (!jobs || jobs.length === 0) {
     container.innerHTML = '<div class="empty-state">작업이 없습니다</div>';
     return;
   }
-  
+
   let html = `
     <table class="data-table">
       <thead>
@@ -618,7 +651,7 @@ const renderJobsTable = (jobs) => {
       </thead>
       <tbody>
   `;
-  
+
   jobs.forEach((job) => {
     const status = job.status;
     const statusClass = `status-${status}`;
@@ -629,7 +662,7 @@ const renderJobsTable = (jobs) => {
       failed: "#ef4444",
       cancelled: "#6b7280",
     };
-    
+
     // 진행률 표시 (안전하게 처리)
     let progress = "-";
     if (job.progress && typeof job.progress === "object") {
@@ -640,26 +673,38 @@ const renderJobsTable = (jobs) => {
         progress = `${currentEpoch}/${totalEpoch} (${progressPercent}%)`;
       }
     }
-    
-    const result = job.result ? JSON.stringify(job.result).substring(0, 100) + (JSON.stringify(job.result).length > 100 ? "..." : "") : "-";
+
+    const result = job.result
+      ? JSON.stringify(job.result).substring(0, 100) +
+        (JSON.stringify(job.result).length > 100 ? "..." : "")
+      : "-";
     const error = job.error || "-";
-    
+
     // 모델 ID와 설명 (학습 작업의 경우)
-    const modelId = queueName === "train" ? (job.model_id ? job.model_id.substring(0, 8) + "..." : "-") : "";
-    const modelDesc = queueName === "train" ? (job.model_description || "-") : "";
-    
+    const modelId =
+      queueName === "train"
+        ? job.model_id
+          ? job.model_id.substring(0, 8) + "..."
+          : "-"
+        : "";
+    const modelDesc = queueName === "train" ? job.model_description || "-" : "";
+
     // 취소 가능한 상태인지 확인 (pending 또는 running)
     const canCancel = status === "pending" || status === "running";
-    const cancelButton = canCancel 
+    const cancelButton = canCancel
       ? `<button class="btn btn-danger" onclick="cancelJob('${queueName}', '${job.job_id}')" style="padding: 4px 8px; font-size: 0.8rem;">취소</button>`
       : "-";
-    
+
     html += `
       <tr style="border-left: 4px solid ${statusColors[status] || "#6b7280"}">
         <td><strong>${job.job_id.substring(0, 8)}...</strong></td>
         <td><span class="status-badge ${statusClass}">${status}</span></td>
         <td>${progress}</td>
-        ${queueName === "train" ? `<td>${modelId}</td><td style="font-size: 0.8rem; max-width: 200px; word-break: break-all; white-space: pre-wrap;">${modelDesc}</td>` : ""}
+        ${
+          queueName === "train"
+            ? `<td>${modelId}</td><td style="font-size: 0.8rem; max-width: 200px; word-break: break-all; white-space: pre-wrap;">${modelDesc}</td>`
+            : ""
+        }
         <td>${formatDate(job.created_at)}</td>
         <td>${formatDate(job.started_at)}</td>
         <td>${formatDate(job.completed_at)}</td>
@@ -669,12 +714,12 @@ const renderJobsTable = (jobs) => {
       </tr>
     `;
   });
-  
+
   html += `
       </tbody>
     </table>
   `;
-  
+
   container.innerHTML = html;
 };
 
@@ -683,7 +728,7 @@ let autoRefreshInterval = null;
 
 const refreshJobsList = async () => {
   const queueName = document.getElementById("queue-select").value;
-  
+
   try {
     const response = await fetch(`/jobs/${queueName}`);
     if (!response.ok) {
@@ -697,49 +742,57 @@ const refreshJobsList = async () => {
 };
 
 // 새로고침 버튼
-document.getElementById("jobs-refresh-btn").addEventListener("click", refreshJobsList);
+document
+  .getElementById("jobs-refresh-btn")
+  .addEventListener("click", refreshJobsList);
 
 // 큐 선택 변경 시 자동 새로고침
-document.getElementById("queue-select").addEventListener("change", refreshJobsList);
+document
+  .getElementById("queue-select")
+  .addEventListener("change", refreshJobsList);
 
 // 자동 새로고침 기능
-document.getElementById("auto-refresh-checkbox").addEventListener("change", (event) => {
-  const checkbox = event.target;
-  
-  if (checkbox.checked) {
-    // 즉시 한 번 조회
-    refreshJobsList();
-    
-    // 5초마다 자동 조회
-    autoRefreshInterval = setInterval(() => {
+document
+  .getElementById("auto-refresh-checkbox")
+  .addEventListener("change", (event) => {
+    const checkbox = event.target;
+
+    if (checkbox.checked) {
+      // 즉시 한 번 조회
       refreshJobsList();
-    }, 5000);
-  } else {
-    if (autoRefreshInterval) {
-      clearInterval(autoRefreshInterval);
-      autoRefreshInterval = null;
+
+      // 5초마다 자동 조회
+      autoRefreshInterval = setInterval(() => {
+        refreshJobsList();
+      }, 5000);
+    } else {
+      if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+        autoRefreshInterval = null;
+      }
     }
-  }
-});
+  });
 
 // 작업 취소 함수
 window.cancelJob = async (queueName, jobId) => {
-  if (!confirm(`작업을 취소하시겠습니까? (Job ID: ${jobId.substring(0, 8)}...)`)) {
+  if (
+    !confirm(`작업을 취소하시겠습니까? (Job ID: ${jobId.substring(0, 8)}...)`)
+  ) {
     return;
   }
-  
+
   try {
     const response = await fetch(`/jobs/${queueName}/${jobId}`, {
       method: "DELETE",
     });
-    
+
     if (!response.ok) {
       const data = await response.json();
       throw new Error(data.detail || "작업 취소 실패");
     }
-    
+
     alert("작업이 취소되었습니다.");
-    
+
     // 취소 후 리스트 새로고침
     setTimeout(() => {
       refreshJobsList();

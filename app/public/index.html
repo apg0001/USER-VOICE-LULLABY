@@ -3,8 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Cache-Control"
+      content="no-cache, no-store, must-revalidate"
+    />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>Applio API Console</title>
-    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/styles.css?v=1" />
   </head>
   <body>
     <header class="header">
@@ -87,7 +93,7 @@
               <option value="false">비활성화</option>
             </select>
           </label>
-          <div id="pretrained-model-group" style="display: none;">
+          <div id="pretrained-model-group" style="display: none">
             <div class="model-select-group">
               <label>
                 G Pretrained Model (선택)
@@ -130,7 +136,7 @@
               id="model-description-input"
               placeholder="모델에 대한 설명을 입력하세요"
               rows="3"
-              style="width: 100%; resize: vertical;"
+              style="width: 100%; resize: vertical"
             ></textarea>
           </label>
           <label>
@@ -256,16 +262,23 @@
 
     <section class="job-status">
       <h3>작업 상태 조회</h3>
-      <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem;">
-        <label style="margin: 0;">
+      <div
+        style="
+          display: flex;
+          gap: 1rem;
+          align-items: center;
+          margin-bottom: 1rem;
+        "
+      >
+        <label style="margin: 0">
           큐 선택
           <select name="queue_name" id="queue-select" required>
             <option value="train">train</option>
             <option value="inference">inference</option>
           </select>
         </label>
-        <button id="jobs-refresh-btn" style="margin: 0;">새로고침</button>
-        <div class="auto-refresh" style="margin: 0;">
+        <button id="jobs-refresh-btn" style="margin: 0">새로고침</button>
+        <div class="auto-refresh" style="margin: 0">
           <input type="checkbox" id="auto-refresh-checkbox" />
           <label for="auto-refresh-checkbox" style="margin: 0; cursor: pointer">
             자동 새로고침 (5초마다)
@@ -279,7 +292,9 @@
 
     <section class="job-status">
       <h3>모델 관리</h3>
-      <button id="models-refresh-btn" style="margin-bottom: 1rem">새로고침</button>
+      <button id="models-refresh-btn" style="margin-bottom: 1rem">
+        새로고침
+      </button>
       <div id="models-list-container">
         <div class="empty-state">모델 리스트 조회 버튼을 클릭하세요</div>
       </div>
@@ -287,12 +302,14 @@
 
     <section class="job-status">
       <h3>추론 결과 관리</h3>
-      <button id="outputs-refresh-btn" style="margin-bottom: 1rem">새로고침</button>
+      <button id="outputs-refresh-btn" style="margin-bottom: 1rem">
+        새로고침
+      </button>
       <div id="outputs-list-container">
         <div class="empty-state">추론 결과 조회 버튼을 클릭하세요</div>
       </div>
     </section>
 
-    <script type="module" src="/static/main.js"></script>
+    <script type="module" src="/static/main.js?v=1"></script>
   </body>
 </html>
