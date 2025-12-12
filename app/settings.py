@@ -29,7 +29,7 @@ class TrainingDefaults:
     clean_strength: float = 0.6
     chunk_len: float = 20.0
     overlap_len: float = 2.0
-    normalization_mode: str = "pre"
+    normalization_mode: str = "post"
     f0_method: str = "rmvpe"
     embedder_model: str = "contentvec"
     gpu: int = 0
@@ -70,16 +70,22 @@ class InferenceDefaults:
     # formant_timbre: float = 1.0
     # post_process: bool = False
     pitch: int = 0
-    index_rate: float = 0.75
-    volume_envelope: float = 1.0
-    protect: float = 0.5
+    index_rate: float = (
+        0.75  # 값이 높을수록 index 파일의 특성이 더 많이 적용 / 이 값을 낮추면 아티팩트 발생을 줄일 수 있음
+    )
+    volume_envelope: float = (
+        1.0  # 0에 가까울수록 입력 파일과 일치 / 1에 가까울수록 모델 음량과 일치
+    )
+    protect: float = 0.5  # 최대 0.5 / 낮출수록 숨소리 잡음이 줄어듦
     f0_method: str = "rmvpe"
-    split_audio: bool = False
+    split_audio: bool = (
+        True  # True 설정 시 일반적으로 더 빠른 속도와 일관된 출력량 제공
+    )
     f0_autotune: bool = False
     f0_autotune_strength: float = 1
     proposed_pitch: bool = False
     proposed_pitch_threshold: float = 155.0
-    clean_audio: bool = False
+    clean_audio: bool = True
     clean_strength: float = 0.5
     export_format: str = "wav"
     embedder_model: str = "contentvec"

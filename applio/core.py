@@ -585,8 +585,6 @@ def run_model_blender_script(
     return message, model_blended
 
 
-
-
 # Download
 def run_download_script(model_link: str):
     model_download_pipeline(model_link)
