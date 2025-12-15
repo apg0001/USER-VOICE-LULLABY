@@ -34,8 +34,11 @@ voices_data = load_voices_data()
 locales = list({voice["ShortName"] for voice in voices_data})
 
 
-@lru_cache(maxsize=None)
 def import_voice_converter():
+    """
+    VoiceConverter 인스턴스를 생성합니다.
+    캐싱을 제거하여 각 작업 후 메모리가 즉시 해제되도록 합니다.
+    """
     from rvc.infer.infer import VoiceConverter
 
     return VoiceConverter()
@@ -173,13 +176,24 @@ def run_infer_script(
         "delay_mix": delay_mix,
         "sid": sid,
     }
-    infer_pipeline = import_voice_converter()
-    infer_pipeline.convert_audio(
-        **kwargs,
-    )
-    return f"File {input_path} inferred successfully.", output_path.replace(
-        ".wav", f".{export_format.lower()}"
-    )
+    infer_pipeline = None
+    try:
+        infer_pipeline = import_voice_converter()
+        infer_pipeline.convert_audio(
+            **kwargs,
+        )
+        return f"File {input_path} inferred successfully.", output_path.replace(
+            ".wav", f".{export_format.lower()}"
+        )
+    finally:
+        # 작업 완료 후 VoiceConverter 인스턴스 정리
+        if infer_pipeline is not None:
+            # 모델 cleanup (선택적 - 필요시 주석 해제)
+            # infer_pipeline.cleanup_model()
+            del infer_pipeline
+        # Python 가비지 컬렉션 강제 실행
+        import gc
+        gc.collect()
 
 
 # Batch infer
@@ -365,46 +379,56 @@ def run_tts_script(
         ),
     ]
     subprocess.run(command_tts)
-    infer_pipeline = import_voice_converter()
-    infer_pipeline.convert_audio(
-        pitch=pitch,
-        index_rate=index_rate,
-        volume_envelope=volume_envelope,
-        protect=protect,
-        f0_method=f0_method,
-        audio_input_path=output_tts_path,
-        audio_output_path=output_rvc_path,
-        model_path=pth_path,
-        index_path=index_path,
-        split_audio=split_audio,
-        f0_autotune=f0_autotune,
-        f0_autotune_strength=f0_autotune_strength,
-        proposed_pitch=proposed_pitch,
-        proposed_pitch_threshold=proposed_pitch_threshold,
-        clean_audio=clean_audio,
-        clean_strength=clean_strength,
-        export_format=export_format,
-        embedder_model=embedder_model,
-        embedder_model_custom=embedder_model_custom,
-        sid=sid,
-        formant_shifting=None,
-        formant_qfrency=None,
-        formant_timbre=None,
-        post_process=None,
-        reverb=None,
-        pitch_shift=None,
-        limiter=None,
-        gain=None,
-        distortion=None,
-        chorus=None,
-        bitcrush=None,
-        clipping=None,
-        compressor=None,
-        delay=None,
-        sliders=None,
-    )
-
-    return f"Text {tts_text} synthesized successfully.", output_rvc_path.replace(
+    infer_pipeline = None
+    try:
+        infer_pipeline = import_voice_converter()
+        infer_pipeline.convert_audio(
+            pitch=pitch,
+            index_rate=index_rate,
+            volume_envelope=volume_envelope,
+            protect=protect,
+            f0_method=f0_method,
+            audio_input_path=output_tts_path,
+            audio_output_path=output_rvc_path,
+            model_path=pth_path,
+            index_path=index_path,
+            split_audio=split_audio,
+            f0_autotune=f0_autotune,
+            f0_autotune_strength=f0_autotune_strength,
+            proposed_pitch=proposed_pitch,
+            proposed_pitch_threshold=proposed_pitch_threshold,
+            clean_audio=clean_audio,
+            clean_strength=clean_strength,
+            export_format=export_format,
+            embedder_model=embedder_model,
+            embedder_model_custom=embedder_model_custom,
+            sid=sid,
+            formant_shifting=None,
+            formant_qfrency=None,
+            formant_timbre=None,
+            post_process=None,
+            reverb=None,
+            pitch_shift=None,
+            limiter=None,
+            gain=None,
+            distortion=None,
+            chorus=None,
+            bitcrush=None,
+            clipping=None,
+            compressor=None,
+            delay=None,
+            sliders=None,
+        )
+        return f"Text {tts_text} synthesized successfully.", output_rvc_path.replace(
+            ".wav", f".{export_format.lower()}"
+        )
+    finally:
+        # 작업 완료 후 VoiceConverter 인스턴스 정리
+        if infer_pipeline is not None:
+            del infer_pipeline
+        # Python 가비지 컬렉션 강제 실행
+        import gc
+        gc.collect() synthesized successfully.", output_rvc_path.replace(
         ".wav", f".{export_format.lower()}"
     )
 

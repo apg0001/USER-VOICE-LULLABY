@@ -346,6 +346,25 @@ class VoiceConverter:
         except Exception as error:
             print(f"An error occurred during audio conversion: {error}")
             print(traceback.format_exc())
+        finally:
+            # 작업 완료 후 메모리 정리
+            # 오디오 데이터 해제
+            if 'audio' in locals():
+                del audio
+            if 'audio_opt' in locals():
+                del audio_opt
+            if 'chunks' in locals():
+                del chunks
+            if 'converted_chunks' in locals():
+                del converted_chunks
+            
+            # GPU 메모리 정리
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            
+            # Python 가비지 컬렉션 강제 실행
+            import gc
+            gc.collect()
 
     def convert_audio_batch(
         self,

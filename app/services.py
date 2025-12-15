@@ -718,6 +718,7 @@ async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) ->
                 # spleeter가 자체적으로 TensorFlow Graph를 관리하므로
                 # 우리가 명시적으로 Graph 컨텍스트를 만들지 않습니다.
                 # 락으로 동시 실행을 제한하여 충돌을 방지합니다.
+                separator = None
                 try:
                     # 각 작업마다 새로운 Separator 인스턴스를 생성하여
                     # 이전 작업의 상태가 영향을 주지 않도록 합니다.
@@ -729,6 +730,19 @@ async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) ->
                         exc_info=True,
                     )
                     raise
+                finally:
+                    # TensorFlow 메모리 정리
+                    if separator is not None:
+                        del separator
+                    try:
+                        import tensorflow as tf
+                        tf.keras.backend.clear_session()
+                        # TensorFlow 2.x 메모리 정리
+                        if hasattr(tf, 'compat'):
+                            tf.compat.v1.reset_default_graph()
+                    except Exception:
+                        # TensorFlow가 없거나 정리 실패 시 무시
+                        pass
 
             # 전용 스레드 풀 사용: max_workers=1로 설정하여 한 번에 하나의 작업만 실행
             # TensorFlow Graph 충돌을 완전히 방지하기 위해 스레드 레벨에서도 제한합니다.
@@ -785,26 +799,35 @@ async def merge_vocal_instrumental(
     loop = asyncio.get_running_loop()
 
     def _merge_audio():
-        vocals, sr_v = librosa.load(vocals_path, sr=None, mono=True)
-        instrumental, sr_i = librosa.load(instrumental_path, sr=None, mono=True)
+        vocals = None
+        instrumental = None
+        try:
+            vocals, sr_v = librosa.load(vocals_path, sr=None, mono=True)
+            instrumental, sr_i = librosa.load(instrumental_path, sr=None, mono=True)
 
-        # 샘플링 레이트가 다르면 보컬 기준으로 리샘플링
-        if sr_v != sr_i:
-            instrumental = librosa.resample(instrumental, orig_sr=sr_i, target_sr=sr_v)
-            sr_i = sr_v
+            # 샘플링 레이트가 다르면 보컬 기준으로 리샘플링
+            if sr_v != sr_i:
+                instrumental = librosa.resample(instrumental, orig_sr=sr_i, target_sr=sr_v)
+                sr_i = sr_v
 
-        # 길이가 다르면 더 긴 쪽에 맞춰 패딩
-        max_len = max(len(vocals), len(instrumental))
-        vocals = np.pad(vocals, (0, max_len - len(vocals)), "constant")
-        instrumental = np.pad(
-            instrumental, (0, max_len - len(instrumental)), "constant"
-        )
+            # 길이가 다르면 더 긴 쪽에 맞춰 패딩
+            max_len = max(len(vocals), len(instrumental))
+            vocals = np.pad(vocals, (0, max_len - len(vocals)), "constant")
+            instrumental = np.pad(
+                instrumental, (0, max_len - len(instrumental)), "constant"
+            )
 
-        # 단순 덧셈으로 믹싱
-        mixed = vocals + instrumental
+            # 단순 덧셈으로 믹싱
+            mixed = vocals + instrumental
 
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        sf.write(output_path, mixed, sr_v)
-        return output_path
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            sf.write(output_path, mixed, sr_v)
+            return output_path
+        finally:
+            # 오디오 데이터 메모리 해제
+            if vocals is not None:
+                del vocals
+            if instrumental is not None:
+                del instrumental
 
     return await loop.run_in_executor(None, _merge_audio)
