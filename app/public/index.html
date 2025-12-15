@@ -204,6 +204,18 @@
             <input name="output_dir" placeholder="outputs" />
           </label>
           <label>
+            Pitch (피치 조절, 선택)
+            <input
+              name="pitch"
+              type="number"
+              min="-24"
+              max="24"
+              step="1"
+              placeholder="기본 0 (반음 단위, -24~24)"
+              title="피치 조절 값 (반음 단위). 0이 아닌 경우 보컬과 배경 음원 모두 동일하게 피치가 조절됩니다."
+            />
+          </label>
+          <label>
             Volume Envelope (선택)
             <input
               name="volume_envelope"

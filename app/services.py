@@ -437,6 +437,7 @@ async def run_inference(
     model_path: str,
     index_path: Optional[str] = None,
     output_dir: str = "outputs",
+    pitch: Optional[int] = None,
     volume_envelope: Optional[float] = None,
     protect: Optional[float] = None,
     f0_autotune: Optional[bool] = None,
@@ -469,6 +470,7 @@ async def run_inference(
     resolved_output_dir = _resolve_path(output_dir, RVC_ROOT)
     output_folder = _ensure_directory(resolved_output_dir)
 
+    pitch = pitch if pitch is not None else defaults.pitch
     volume_envelope = volume_envelope or defaults.volume_envelope
     protect = protect or defaults.protect
     f0_autotune = f0_autotune or defaults.f0_autotune
@@ -511,19 +513,29 @@ async def run_inference(
         # spleeter를 사용하여 입력 오디오를 보컬과 인스트루멘탈로 분리합니다.
         # 보컬만 변환하여 원본 인스트루멘탈과 합성하면 더 자연스러운 결과를 얻을 수 있습니다.
         logger.info(f"보컬 분리 시작: {input_path}")
-        separation_result = await separate_vocal_instrumental(
-            str(input_path), str(output_folder)
-        )
-        vocals_path = Path(separation_result["vocals"])
-        instrumental_path = Path(separation_result["instrumental"])
-        separation_folder = vocals_path.parent
-        logger.info(f"분리 완료 - 보컬: {vocals_path}, 인스트: {instrumental_path}")
+        separation_result = None
+        try:
+            separation_result = await separate_vocal_instrumental(
+                str(input_path), str(output_folder)
+            )
+            vocals_path = Path(separation_result["vocals"])
+            instrumental_path = Path(separation_result["instrumental"])
+            separation_folder = vocals_path.parent
+            logger.info(f"분리 완료 - 보컬: {vocals_path}, 인스트: {instrumental_path}")
+        finally:
+            # 보컬 분리 단계 메모리 정리
+            if separation_result is not None:
+                del separation_result
+            import gc
+            gc.collect()
 
         # 2단계: 보컬만 inference 실행
         # 분리된 보컬에만 음성 변환을 적용합니다.
         # 인스트루멘탈은 원본 그대로 유지하여 음질 손실을 최소화합니다.
         logger.info(f"보컬 inference 시작: {vocals_path}")
         temp_vocal_output = output_folder / f"{unique_id}_vocal_infer.wav"
+        vocal_message = None
+        vocal_exported = None
 
         try:
             # prerequisites: 의존성 확인 및 초기화
@@ -531,7 +543,7 @@ async def run_inference(
 
             vocal_message, vocal_exported = await _run_blocking(
                 run_infer_script,
-                defaults.pitch,
+                pitch,  # 사용자 지정 피치 사용
                 index_rate,
                 volume_envelope,
                 protect,
@@ -574,6 +586,13 @@ async def run_inference(
         except Exception as e:
             logger.error(f"보컬 inference 실행 중 오류 발생: {e}", exc_info=True)
             raise RuntimeError(f"보컬 inference 실패: {str(e)}")
+        finally:
+            # inference 단계 메모리 정리
+            import gc
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
 
         # 출력 파일 검증: TensorFlow 오류로 인해 파일이 생성되지 않았거나 비어있을 수 있음
         vocal_exported_path = Path(vocal_exported)
@@ -597,14 +616,19 @@ async def run_inference(
         # 변환된 보컬과 원본 인스트루멘탈을 믹싱하여 최종 출력을 생성합니다.
         logger.info("오디오 합성 시작")
         final_output = output_folder / f"{unique_id}_final.wav"
+        final_output_path = None
 
         try:
             final_output_path = await merge_vocal_instrumental(
-                str(vocal_exported), str(instrumental_path), str(final_output)
+                str(vocal_exported), str(instrumental_path), str(final_output), pitch
             )
         except Exception as e:
             logger.error(f"오디오 합성 중 오류 발생: {e}", exc_info=True)
             raise RuntimeError(f"오디오 합성 실패: {str(e)}")
+        finally:
+            # 합성 단계 메모리 정리
+            import gc
+            gc.collect()
 
         logger.info(f"최종 합성 완료: {final_output_path}")
 
@@ -680,6 +704,13 @@ async def run_inference(
                 logger.warning(
                     f"입력 임시 오디오 파일 삭제 실패: {input_audio_path} - {e}"
                 )
+        
+        # 최종 메모리 정리
+        import gc
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
 
 
 # 보컬 분리 작업 동시 실행 제한
@@ -736,13 +767,15 @@ async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) ->
                         del separator
                     try:
                         import tensorflow as tf
+                        # TensorFlow 컨텍스트가 존재하는지 확인 후 정리
+                        # clear_session()은 안전하게 호출 가능
                         tf.keras.backend.clear_session()
-                        # TensorFlow 2.x 메모리 정리
-                        if hasattr(tf, 'compat'):
-                            tf.compat.v1.reset_default_graph()
-                    except Exception:
-                        # TensorFlow가 없거나 정리 실패 시 무시
-                        pass
+                    except (AttributeError, RuntimeError, IndexError) as e:
+                        # TensorFlow 컨텍스트 오류는 무시 (이미 정리되었거나 없음)
+                        logger.debug(f"TensorFlow 세션 정리 중 오류 (무시): {e}")
+                    except Exception as e:
+                        # 기타 TensorFlow 관련 오류도 무시
+                        logger.debug(f"TensorFlow 정리 중 예상치 못한 오류 (무시): {e}")
 
             # 전용 스레드 풀 사용: max_workers=1로 설정하여 한 번에 하나의 작업만 실행
             # TensorFlow Graph 충돌을 완전히 방지하기 위해 스레드 레벨에서도 제한합니다.
@@ -789,12 +822,13 @@ async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) ->
 
 
 async def merge_vocal_instrumental(
-    vocals_path: str, instrumental_path: str, output_path: str
+    vocals_path: str, instrumental_path: str, output_path: str, pitch: int = 0
 ) -> str:
     """변환된 보컬과 원본 인스트루멘탈 합성
 
     변환된 보컬과 원본 인스트루멘탈을 믹싱하여 최종 오디오를 생성합니다.
     샘플링 레이트가 다르면 보컬 기준으로 리샘플링하고, 길이가 다르면 패딩하여 맞춥니다.
+    pitch가 0이 아닌 경우 배경 음원도 동일하게 피치 조절합니다 (속도는 유지).
     """
     loop = asyncio.get_running_loop()
 
@@ -809,6 +843,14 @@ async def merge_vocal_instrumental(
             if sr_v != sr_i:
                 instrumental = librosa.resample(instrumental, orig_sr=sr_i, target_sr=sr_v)
                 sr_i = sr_v
+
+            # 피치 조절이 0이 아닌 경우 배경 음원도 동일하게 피치 조절 (속도 유지)
+            if pitch != 0:
+                # librosa의 pitch_shift를 사용하여 피치 조절 (속도는 유지)
+                # pitch는 반음 단위 (12 = 1옥타브)
+                instrumental = librosa.effects.pitch_shift(
+                    instrumental, sr=sr_v, n_steps=pitch
+                )
 
             # 길이가 다르면 더 긴 쪽에 맞춰 패딩
             max_len = max(len(vocals), len(instrumental))
@@ -829,5 +871,8 @@ async def merge_vocal_instrumental(
                 del vocals
             if instrumental is not None:
                 del instrumental
+            # 가비지 컬렉션 강제 실행
+            import gc
+            gc.collect()
 
     return await loop.run_in_executor(None, _merge_audio)

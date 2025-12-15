@@ -26,6 +26,7 @@ async def start_inference(
     model_path: str = Form(...),
     index_path: Optional[str] = Form(None),
     output_dir: Optional[str] = Form(None),
+    pitch: Optional[int] = Form(None),
     volume_envelope: Optional[float] = Form(None),
     protect: Optional[float] = Form(None),
     f0_autotune: Optional[bool] = Form(None),
@@ -59,6 +60,7 @@ async def start_inference(
 
     # 기본값 적용 (None인 경우에만)
     output_dir = output_dir if output_dir is not None else "outputs"
+    pitch = pitch if pitch is not None else INFERENCE_DEFAULTS.pitch
     volume_envelope = (
         volume_envelope
         if volume_envelope is not None
@@ -119,7 +121,7 @@ async def start_inference(
 
     logger.debug(
         f"추론 파라미터 | model_path={model_path} | index_path={index_path} | "
-        f"output_dir={output_dir} | volume_envelope={volume_envelope} | protect={protect} | "
+        f"output_dir={output_dir} | pitch={pitch} | volume_envelope={volume_envelope} | protect={protect} | "
         f"f0_autotune={f0_autotune} | embedder_model={embedder_model} | index_rate={index_rate}"
     )
 
@@ -135,6 +137,7 @@ async def start_inference(
             model_path=model_path,
             index_path=index_path,
             output_dir=output_dir,
+            pitch=pitch,
             volume_envelope=volume_envelope,
             protect=protect,
             f0_autotune=f0_autotune,
@@ -168,7 +171,7 @@ async def start_inference(
 
         logger.info(
             f"추론 작업 등록 완료 | job_id={job_id} | model_path={model_path} | "
-            f"index_path={index_path} | output_dir={output_dir} | "
+            f"index_path={index_path} | output_dir={output_dir} | pitch={pitch} | "
             f"volume_envelope={volume_envelope} | protect={protect} | "
             f"f0_autotune={f0_autotune} | embedder_model={embedder_model} | index_rate={index_rate} | "
             f"clean_audio={clean_audio} | clean_strength={clean_strength} | reverb={reverb} | "

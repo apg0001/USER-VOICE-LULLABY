@@ -30,6 +30,7 @@ class InferenceFilesRequest(BaseModel):
     model_path: str
     index_path: Optional[str] = None
     output_dir: str = "outputs"
+    pitch: Optional[int] = None
     volume_envelope: Optional[float] = None
     protect: Optional[float] = None
     f0_autotune: Optional[bool] = None

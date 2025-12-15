@@ -571,6 +571,9 @@ document
       if (form.output_dir.value.trim().length > 0) {
         formData.append("output_dir", form.output_dir.value);
       }
+      if (form.pitch.value.trim().length > 0) {
+        formData.append("pitch", form.pitch.value);
+      }
       if (form.volume_envelope.value.trim().length > 0) {
         formData.append("volume_envelope", form.volume_envelope.value);
       }
