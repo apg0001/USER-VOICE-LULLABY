@@ -428,9 +428,7 @@ def run_tts_script(
             del infer_pipeline
         # Python 가비지 컬렉션 강제 실행
         import gc
-        gc.collect() synthesized successfully.", output_rvc_path.replace(
-        ".wav", f".{export_format.lower()}"
-    )
+        gc.collect()
 
 
 # Preprocess
