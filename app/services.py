@@ -648,57 +648,153 @@ async def run_inference(
             # prerequisites: 의존성 확인 및 초기화
             await _run_blocking(run_prerequisites_script, True, True, True)
 
-            vocal_message, vocal_exported = await _run_blocking(
-                run_infer_script,
-                pitch,  # 사용자 지정 피치 사용
-                index_rate,
-                volume_envelope,
-                protect,
-                defaults.f0_method,
-                str(vocals_path),
-                str(temp_vocal_output),
-                str(model_file),
-                str(idx_path) if idx_path else "",
-                defaults.split_audio,
-                f0_autotune,
-                f0_autotune_strength,
-                defaults.proposed_pitch,
-                defaults.proposed_pitch_threshold,
-                clean_audio,
-                clean_strength,
-                defaults.export_format,
-                embedder_model,
-                None,
-                defaults.formant_shifting,
-                defaults.formant_qfrency,
-                defaults.formant_timbre,
-                defaults.post_process,
-                reverb,
-                False,  # pitch_shift
-                False,  # limiter
-                False,  # gain
-                False,  # distortion
-                False,  # chorus
-                False,  # bitcrush
-                False,  # clipping
-                False,  # compressor
-                False,  # delay
-                reverb_room_size,
-                reverb_damping,
-                reverb_wet_gain,
-                reverb_dry_gain,
-                reverb_width,
-                reverb_freeze_mode,
-            )
+            # RVC를 별도 프로세스에서 실행하여 메모리 완전 분리
+            # 프로세스 종료 시 모든 메모리가 자동으로 해제됩니다.
+            def _run_rvc_in_process():
+                import json
+                import tempfile
+                
+                # 임시 JSON 설정 파일 생성
+                config = {
+                    'pitch': pitch,
+                    'index_rate': index_rate,
+                    'volume_envelope': volume_envelope,
+                    'protect': protect,
+                    'f0_method': defaults.f0_method,
+                    'input_path': str(vocals_path),
+                    'output_path': str(temp_vocal_output),
+                    'pth_path': str(model_file),
+                    'index_path': str(idx_path) if idx_path else '',
+                    'split_audio': defaults.split_audio,
+                    'f0_autotune': f0_autotune,
+                    'f0_autotune_strength': f0_autotune_strength,
+                    'proposed_pitch': defaults.proposed_pitch,
+                    'proposed_pitch_threshold': defaults.proposed_pitch_threshold,
+                    'clean_audio': clean_audio,
+                    'clean_strength': clean_strength,
+                    'export_format': defaults.export_format,
+                    'embedder_model': embedder_model,
+                    'embedder_model_custom': None,
+                    'formant_shifting': defaults.formant_shifting,
+                    'formant_qfrency': defaults.formant_qfrency,
+                    'formant_timbre': defaults.formant_timbre,
+                    'post_process': defaults.post_process,
+                    'reverb': reverb,
+                    'pitch_shift': False,
+                    'limiter': False,
+                    'gain': False,
+                    'distortion': False,
+                    'chorus': False,
+                    'bitcrush': False,
+                    'clipping': False,
+                    'compressor': False,
+                    'delay': False,
+                    'reverb_room_size': reverb_room_size,
+                    'reverb_damping': reverb_damping,
+                    'reverb_wet_gain': reverb_wet_gain,
+                    'reverb_dry_gain': reverb_dry_gain,
+                    'reverb_width': reverb_width,
+                    'reverb_freeze_mode': reverb_freeze_mode,
+                    'pitch_shift_semitones': 0.0,
+                    'limiter_threshold': -6,
+                    'limiter_release_time': 0.01,
+                    'gain_db': 0.0,
+                    'distortion_gain': 25,
+                    'chorus_rate': 1.0,
+                    'chorus_depth': 0.25,
+                    'chorus_center_delay': 7,
+                    'chorus_feedback': 0.0,
+                    'chorus_mix': 0.5,
+                    'bitcrush_bit_depth': 8,
+                    'clipping_threshold': -6,
+                    'compressor_threshold': 0,
+                    'compressor_ratio': 1,
+                    'compressor_attack': 1.0,
+                    'compressor_release': 100,
+                    'delay_seconds': 0.5,
+                    'delay_feedback': 0.0,
+                    'delay_mix': 0.5,
+                    'sid': 0,
+                }
+                
+                # 임시 JSON 파일 생성
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as f:
+                    json.dump(config, f, ensure_ascii=False)
+                    config_path = f.name
+                
+                try:
+                    # RVC worker 프로세스 실행
+                    worker_script = PROJECT_ROOT / "app" / "services" / "rvc_worker.py"
+                    if not worker_script.exists():
+                        raise FileNotFoundError(f"RVC worker script not found: {worker_script}")
+                    
+                    python_exe = sys.executable
+                    result = subprocess.run(
+                        [python_exe, str(worker_script), config_path],
+                        capture_output=True,
+                        text=True,
+                        timeout=1800,  # 30분 타임아웃
+                    )
+                    
+                    # 결과 파싱
+                    if result.returncode != 0:
+                        error_msg = f"RVC 프로세스 실패 (exit code: {result.returncode})"
+                        if result.stderr:
+                            # stderr에서 JSON 결과 찾기
+                            try:
+                                stderr_lines = result.stderr.strip().split('\n')
+                                for line in reversed(stderr_lines):
+                                    if line.startswith('{') and 'error' in line:
+                                        error_data = json.loads(line)
+                                        error_msg = f"RVC 프로세스 실패: {error_data.get('error', error_msg)}"
+                                        break
+                            except Exception:
+                                pass
+                            if 'error' not in error_msg.lower():
+                                error_msg += f"\nStderr: {result.stderr}"
+                        if result.stdout:
+                            error_msg += f"\nStdout: {result.stdout}"
+                        logger.error(error_msg)
+                        raise RuntimeError(error_msg)
+                    
+                    # stdout에서 JSON 결과 파싱
+                    stdout_lines = result.stdout.strip().split('\n')
+                    result_data = None
+                    for line in reversed(stdout_lines):
+                        if line.startswith('{') and 'success' in line:
+                            try:
+                                result_data = json.loads(line)
+                                break
+                            except json.JSONDecodeError:
+                                continue
+                    
+                    if result_data is None:
+                        raise RuntimeError(f"RVC 프로세스 결과 파싱 실패. stdout: {result.stdout}")
+                    
+                    if not result_data.get('success', False):
+                        error = result_data.get('error', 'Unknown error')
+                        raise RuntimeError(f"RVC inference 실패: {error}")
+                    
+                    message = result_data.get('message', 'Inference completed')
+                    output_path = result_data.get('output_path', str(temp_vocal_output))
+                    
+                    return message, output_path
+                    
+                finally:
+                    # 임시 JSON 파일 삭제
+                    try:
+                        os.unlink(config_path)
+                    except Exception:
+                        pass
+            
+            vocal_message, vocal_exported = await _run_blocking(_run_rvc_in_process)
             _log_memory_usage("Inference 스크립트 완료 직후")
         except Exception as e:
             logger.error(f"보컬 inference 실행 중 오류 발생: {e}", exc_info=True)
             raise RuntimeError(f"보컬 inference 실패: {str(e)}")
         finally:
-            # inference 단계 메모리 정리
-            _cleanup_gpu_memory()
-            _force_garbage_collection()
-            _log_memory_usage("Inference 실행 후 (정리 완료)")
+            # 별도 프로세스에서 실행했으므로 메모리 정리 불필요 (프로세스 종료 시 자동 해제)
+            _log_memory_usage("Inference 실행 후 (프로세스 종료)")
 
         # 출력 파일 검증: TensorFlow 오류로 인해 파일이 생성되지 않았거나 비어있을 수 있음
         vocal_exported_path = Path(vocal_exported)
