@@ -188,12 +188,24 @@ def run_infer_script(
     finally:
         # 작업 완료 후 VoiceConverter 인스턴스 정리
         if infer_pipeline is not None:
-            # 모델 cleanup (선택적 - 필요시 주석 해제)
-            # infer_pipeline.cleanup_model()
+            # 모델 cleanup - 메모리 누수 방지를 위해 명시적으로 호출
+            try:
+                infer_pipeline.cleanup_model()
+            except Exception as e:
+                # cleanup 실패해도 계속 진행
+                print(f"Warning: Model cleanup failed: {e}")
             del infer_pipeline
+            infer_pipeline = None
         # Python 가비지 컬렉션 강제 실행
         import gc
         gc.collect()
+        # GPU 메모리 정리
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
 
 
 # Batch infer
@@ -425,10 +437,22 @@ def run_tts_script(
     finally:
         # 작업 완료 후 VoiceConverter 인스턴스 정리
         if infer_pipeline is not None:
+            try:
+                infer_pipeline.cleanup_model()
+            except Exception as e:
+                print(f"Warning: Model cleanup failed: {e}")
             del infer_pipeline
+            infer_pipeline = None
         # Python 가비지 컬렉션 강제 실행
         import gc
         gc.collect()
+        # GPU 메모리 정리
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
 
 
 # Preprocess

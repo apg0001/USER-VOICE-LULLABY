@@ -248,6 +248,15 @@ class VoiceConverter:
             return
 
         self.get_vc(model_path, sid)
+        
+        # 디버그: 모델 로드 후 메모리 상태
+        try:
+            import psutil
+            process = psutil.Process()
+            mem_info = process.memory_info()
+            print(f"[디버그] 모델 로드 후 메모리: {mem_info.rss / (1024**2):.1f} MB")
+        except Exception:
+            pass
 
         try:
             start_time = time.time()
@@ -349,14 +358,22 @@ class VoiceConverter:
         finally:
             # 작업 완료 후 메모리 정리
             # 오디오 데이터 해제
-            if 'audio' in locals():
-                del audio
-            if 'audio_opt' in locals():
-                del audio_opt
-            if 'chunks' in locals():
-                del chunks
-            if 'converted_chunks' in locals():
-                del converted_chunks
+            try:
+                if 'audio' in locals():
+                    del audio
+                if 'audio_opt' in locals():
+                    del audio_opt
+                if 'chunks' in locals():
+                    del chunks
+                if 'converted_chunks' in locals():
+                    del converted_chunks
+                if 'cleaned_audio' in locals():
+                    del cleaned_audio
+            except Exception:
+                pass
+            
+            # 모델 인스턴스 정리 (재사용을 위해 완전히 정리하지는 않음)
+            # 단, 오디오 관련 데이터는 명시적으로 해제
             
             # GPU 메모리 정리
             if torch.cuda.is_available():
@@ -445,6 +462,15 @@ class VoiceConverter:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
+        # 다른 모델로 전환할 때 이전 모델 정리
+        if self.loaded_model and self.loaded_model != weight_root:
+            # 이전 모델이 다른 경우 정리
+            self.cleanup_model()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            import gc
+            gc.collect()
+
         if not self.loaded_model or self.loaded_model != weight_root:
             self.load_model(weight_root)
             if self.cpt is not None:
@@ -459,16 +485,42 @@ class VoiceConverter:
         """
         Cleans up the model and releases resources.
         """
-        if self.hubert_model is not None:
-            del self.net_g, self.n_spk, self.vc, self.hubert_model, self.tgt_sr
-            self.hubert_model = self.net_g = self.n_spk = self.vc = self.tgt_sr = None
+        try:
+            # 모델 인스턴스 정리
+            if self.net_g is not None:
+                del self.net_g
+                self.net_g = None
+            if self.vc is not None:
+                del self.vc
+                self.vc = None
+            if self.hubert_model is not None:
+                del self.hubert_model
+                self.hubert_model = None
+            
+            # 기타 변수 정리
+            self.n_spk = None
+            self.tgt_sr = None
+            self.version = None
+            self.use_f0 = None
+            
+            # 체크포인트 정리
+            if self.cpt is not None:
+                del self.cpt
+                self.cpt = None
+            
+            self.loaded_model = None
+            self.last_embedder_model = None
+            
+            # GPU 메모리 정리
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-
-        del self.net_g, self.cpt
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        self.cpt = None
+            
+            # 가비지 컬렉션
+            import gc
+            gc.collect()
+        except Exception as e:
+            # 정리 중 오류 발생해도 계속 진행
+            print(f"Warning: Error during model cleanup: {e}")
 
     def load_model(self, weight_root):
         """

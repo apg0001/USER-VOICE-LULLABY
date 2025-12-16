@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import os
 import shutil
 import sys
@@ -11,6 +12,7 @@ from uuid import uuid4
 
 import librosa
 import numpy as np
+import psutil
 import soundfile as sf
 from spleeter.separator import Separator
 
@@ -49,6 +51,35 @@ from app.settings import INFERENCE_DEFAULTS, TRAINING_DEFAULTS
 logger = get_logger(__name__)
 
 __all__ = ["run_inference", "train_model"]
+
+
+def _log_memory_usage(stage: str, process=None):
+    """메모리 사용량 로깅 (디버그용)"""
+    try:
+        if process is None:
+            process = psutil.Process()
+        
+        mem_info = process.memory_info()
+        mem_percent = process.memory_percent()
+        
+        # GPU 메모리 (가능한 경우)
+        gpu_mem = None
+        try:
+            import torch
+            if torch.cuda.is_available():
+                gpu_mem = torch.cuda.memory_allocated() / (1024**3)  # GB
+        except Exception:
+            pass
+        
+        logger.info(
+            f"[메모리 추적] {stage} | "
+            f"RSS: {mem_info.rss / (1024**2):.1f} MB | "
+            f"VMS: {mem_info.vms / (1024**2):.1f} MB | "
+            f"프로세스 메모리: {mem_percent:.1f}%"
+            + (f" | GPU: {gpu_mem:.2f} GB" if gpu_mem is not None else "")
+        )
+    except Exception as e:
+        logger.debug(f"메모리 추적 실패 ({stage}): {e}")
 
 
 def _ensure_directory(path: Path) -> Path:
@@ -502,6 +533,15 @@ async def run_inference(
 
     unique_id = uuid4().hex
 
+    # 메모리 추적: 추론 시작 전
+    initial_mem = None
+    try:
+        process = psutil.Process()
+        initial_mem = process.memory_info().rss / (1024**2)  # MB
+    except Exception:
+        pass
+    _log_memory_usage("추론 시작 전")
+
     # finally 블록에서 정리하기 위한 변수
     vocals_path = None
     instrumental_path = None
@@ -526,8 +566,8 @@ async def run_inference(
             # 보컬 분리 단계 메모리 정리
             if separation_result is not None:
                 del separation_result
-            import gc
             gc.collect()
+            _log_memory_usage("보컬 분리 후")
 
         # 2단계: 보컬만 inference 실행
         # 분리된 보컬에만 음성 변환을 적용합니다.
@@ -538,6 +578,7 @@ async def run_inference(
         vocal_exported = None
 
         try:
+            _log_memory_usage("Inference 실행 전")
             # prerequisites: 의존성 확인 및 초기화
             await _run_blocking(run_prerequisites_script, True, True, True)
 
@@ -583,16 +624,17 @@ async def run_inference(
                 reverb_width,
                 reverb_freeze_mode,
             )
+            _log_memory_usage("Inference 스크립트 완료 직후")
         except Exception as e:
             logger.error(f"보컬 inference 실행 중 오류 발생: {e}", exc_info=True)
             raise RuntimeError(f"보컬 inference 실패: {str(e)}")
         finally:
             # inference 단계 메모리 정리
-            import gc
             import torch
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             gc.collect()
+            _log_memory_usage("Inference 실행 후 (정리 완료)")
 
         # 출력 파일 검증: TensorFlow 오류로 인해 파일이 생성되지 않았거나 비어있을 수 있음
         vocal_exported_path = Path(vocal_exported)
@@ -615,6 +657,7 @@ async def run_inference(
         # 3단계: 변환된 보컬과 원본 인스트루멘탈 합성
         # 변환된 보컬과 원본 인스트루멘탈을 믹싱하여 최종 출력을 생성합니다.
         logger.info("오디오 합성 시작")
+        _log_memory_usage("오디오 합성 전")
         final_output = output_folder / f"{unique_id}_final.wav"
         final_output_path = None
 
@@ -627,8 +670,8 @@ async def run_inference(
             raise RuntimeError(f"오디오 합성 실패: {str(e)}")
         finally:
             # 합성 단계 메모리 정리
-            import gc
             gc.collect()
+            _log_memory_usage("오디오 합성 후")
 
         logger.info(f"최종 합성 완료: {final_output_path}")
 
@@ -706,11 +749,33 @@ async def run_inference(
                 )
         
         # 최종 메모리 정리
-        import gc
         import torch
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         gc.collect()
+        _log_memory_usage("최종 정리 후")
+        
+        # 메모리 증가량 계산 (디버그용)
+        try:
+            process = psutil.Process()
+            final_mem = process.memory_info().rss / (1024**2)  # MB
+            if initial_mem is not None:
+                mem_increase = final_mem - initial_mem
+                logger.info(
+                    f"[메모리 추적] 추론 작업 완료 | "
+                    f"시작: {initial_mem:.1f} MB | "
+                    f"종료: {final_mem:.1f} MB | "
+                    f"증가: {mem_increase:+.1f} MB"
+                )
+                if mem_increase > 100:  # 100MB 이상 증가 시 경고
+                    logger.warning(
+                        f"[메모리 누수 의심] 추론 작업 후 메모리가 {mem_increase:.1f} MB 증가했습니다. "
+                        f"모델이나 오디오 데이터가 제대로 해제되지 않았을 수 있습니다."
+                    )
+            else:
+                logger.info(f"[메모리 추적] 추론 작업 완료 후 최종 메모리: {final_mem:.1f} MB")
+        except Exception:
+            pass
 
 
 # 보컬 분리 작업 동시 실행 제한
@@ -835,6 +900,7 @@ async def merge_vocal_instrumental(
     def _merge_audio():
         vocals = None
         instrumental = None
+        mixed = None
         try:
             vocals, sr_v = librosa.load(vocals_path, sr=None, mono=True)
             instrumental, sr_i = librosa.load(instrumental_path, sr=None, mono=True)
@@ -871,8 +937,9 @@ async def merge_vocal_instrumental(
                 del vocals
             if instrumental is not None:
                 del instrumental
+            if mixed is not None:
+                del mixed
             # 가비지 컬렉션 강제 실행
-            import gc
             gc.collect()
 
     return await loop.run_in_executor(None, _merge_audio)
