@@ -20,6 +20,9 @@ from .routers import (
     training_router,
 )
 
+# uvicorn 시작 전에 로깅 설정 (모든 로그가 app.log에 저장되도록)
+configure_logging()
+
 # 로거 설정
 logger = get_logger(__name__)
 
@@ -67,7 +70,6 @@ app.include_router(jobs_router)
 @app.on_event("startup")
 async def _on_startup() -> None:
     """애플리케이션 시작 시 초기화"""
-    configure_logging()
     train_queue = get_train_queue()
     inference_queue = get_inference_queue()
     await train_queue.start()

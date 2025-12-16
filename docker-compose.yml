@@ -10,6 +10,7 @@ services:
       - ./app:/app/app
       - ./applio/logs:/app/applio/logs
       - ./applio/outputs:/app/applio/outputs
+      - ./logs:/app/logs
     runtime: nvidia
     shm_size: 2gb
     environment:

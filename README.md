@@ -8,37 +8,75 @@
 
 모든 로그는 기본적으로 `logs/app.log`, `logs/error.log`에 UTF-8 인코딩으로 기록되며, 콘솔에도 동시에 출력됩니다.
 
+**로그 파일 관리**:
+- `app.log`: 모든 로그 (INFO 이상), 최대 100MB, 최근 10개 파일 유지
+- `error.log`: 에러 로그만, 최대 20MB, 최근 5개 파일 유지
+- 자동 로테이션: 파일 크기 도달 시 자동으로 백업 파일 생성 및 오래된 파일 삭제
+
+자세한 로깅 설정은 [LOGGING.md](LOGGING.md)를 참조하세요.
+
 ## 설치
 
-```bash
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
+Docker를 사용하므로 별도의 Python 환경 설정이 필요하지 않습니다. Dockerfile에서 모든 의존성을 자동으로 설치합니다.
 
-이 명령은 `app/requirements.txt`와 `applio/requirements.txt`의 의존성을 한 번에 설치합니다.
+의존성은 다음 파일에서 관리됩니다:
+- `app/requirements.txt` - FastAPI 및 애플리케이션 의존성
+- `applio/requirements.txt` - RVC 및 오디오 처리 의존성
 
 ## 실행 방법
 
-### Windows
+### 사전 요구사항
 
-```powershell
-start.bat
-```
+- Docker 및 Docker Compose 설치
+- NVIDIA GPU 및 NVIDIA Container Toolkit 설치 (GPU 사용 시)
+- CUDA 11.8 지원 GPU 드라이버
 
-### Linux / macOS / WSL
+### Docker로 빌드 및 실행
 
-```bash
-chmod +x start.sh
-./start.sh
-```
-
-### 수동 실행
+#### 1. 이미지 빌드
 
 ```bash
-python -m app --host 0.0.0.0 --port 8000
+docker-compose build
 ```
 
-서버가 정상적으로 실행되면 `logs/app.log`에 uvicorn/FastAPI 로그가 쌓이고, 콘솔에도 동일한 내용이 출력됩니다.
+#### 2. 컨테이너 실행
+
+```bash
+docker-compose up -d
+```
+
+#### 3. 로그 확인
+
+```bash
+docker-compose logs -f
+```
+
+#### 4. 컨테이너 중지
+
+```bash
+docker-compose down
+```
+
+#### 5. 컨테이너 재시작
+
+```bash
+docker-compose restart
+```
+
+### Docker Compose 설정
+
+`docker-compose.yml` 파일에서 다음 설정을 확인할 수 있습니다:
+
+- **포트**: `8000:8000` (호스트:컨테이너)
+- **볼륨 마운트**:
+  - `./app:/app/app` - 애플리케이션 코드
+  - `./logs:/app/logs` - 애플리케이션 로그 파일 (app.log, error.log)
+  - `./applio/logs:/app/applio/logs` - RVC 모델 로그 파일
+  - `./applio/outputs:/app/applio/outputs` - 출력 파일
+- **GPU 지원**: NVIDIA GPU 런타임 사용
+- **공유 메모리**: 2GB 설정
+
+서버가 정상적으로 실행되면 `http://localhost:8000`에서 접근할 수 있으며, `logs/app.log`에 uvicorn/FastAPI 로그가 쌓이고, Docker 로그에도 동일한 내용이 출력됩니다.
 
 ## 헬스체크 (`GET /`)
 
@@ -136,6 +174,8 @@ job_id = queue.enqueue_async( # 작업 등록 (즉시 job_id 반환)
 - `model_path`: 모델 파일 경로 (.pth) - 필수
 - `index_path`: 인덱스 파일 경로 (.index) - 선택
 - `output_dir`: 출력 디렉토리 (기본: outputs)
+- `pitch`: 피치 조절 값 (반음 단위, -24 ~ 24, 기본: 0)
+  - 0이 아닌 경우 보컬과 배경 음원 모두 동일하게 피치 조절됩니다 (속도는 유지).
 - `volume_envelope`: 볼륨 엔벨로프 (기본: 1.0)
 - `protect`: 보호 계수 (기본: 0.5)
 - `f0_autotune`: F0 오토튠 활성화 여부 (기본: false)
@@ -157,9 +197,9 @@ job_id = queue.enqueue_async( # 작업 등록 (즉시 job_id 반환)
    - 업로드된 오디오는 `applio/datasets/<모델명>/audio_XXX.ext`로 저장된다.  
    - 이미 데이터셋 폴더가 있는 경우에는 해당 경로를 직접 지정할 수 있다.
 2. **보컬 분리** (추론과 동일한 방식)  
-   - 학습 시작 전 모든 오디오 파일에 대해 spleeter를 사용하여 보컬/반주 분리를 수행한다.  
+   - 학습 시작 전 모든 오디오 파일에 대해 Spleeter를 별도 프로세스에서 실행하여 보컬/반주 분리를 수행한다.  
    - 분리된 보컬 파일로 원본 파일을 교체하여 보컬만으로 학습이 진행된다.  
-   - 원본 파일은 `.original` 확장자로 백업된다.
+   - 메모리 누수 방지를 위해 별도 프로세스에서 실행되며, 프로세스 종료 시 모든 TensorFlow 메모리가 자동으로 해제됩니다.
 3. 큐에서 `train_model`이 실행되면 다음 순서로 RVC 스크립트를 호출한다.  
    - `run_prerequisites_script` → 환경 검사  
    - `run_preprocess_script` → 전처리 결과가 `applio/logs/<모델명>/preprocess` 등에 생성  
@@ -174,14 +214,25 @@ job_id = queue.enqueue_async( # 작업 등록 (즉시 job_id 반환)
 ### 추론 흐름 (`POST /inference`)
 1. 입력 오디오는 `applio/datasets/target_audio/temp_inference_<UUID>.wav`로 저장된다.
 2. `run_inference`는 다음 단계를 순차 실행한다.  
-   - **보컬/반주 분리**: spleeter로 `applio/output/temp_inference_<UUID>/{vocals,accompaniment}.wav` 생성  
-   - **보컬 변환**: RVC `run_infer_script`로 변환된 보컬을 `<UUID>_vocal_infer.wav`로 저장 (index_rate 파라미터 사용)  
+   - **보컬/반주 분리**: Spleeter를 별도 프로세스(`app/services/spleeter_worker.py`)에서 실행하여 `applio/output/temp_inference_<UUID>/{vocals,accompaniment}.wav` 생성  
+     - 메모리 누수 방지를 위해 별도 프로세스에서 실행되며, 프로세스 종료 시 모든 TensorFlow 메모리가 자동으로 해제됩니다.
+   - **보컬 변환**: RVC를 별도 프로세스(`app/services/rvc_worker.py`)에서 실행하여 변환된 보컬을 `<UUID>_vocal_infer.wav`로 저장 (index_rate 파라미터 사용)  
+     - 메모리 누수 방지를 위해 별도 프로세스에서 실행되며, 프로세스 종료 시 모든 PyTorch 모델 메모리가 자동으로 해제됩니다.
    - **합성**: 변환된 보컬 + 원본 반주를 합쳐 `<UUID>_final.wav` 생성 (`applio/output/` 하위)
+     - 피치 조절이 0이 아닌 경우 배경 음원도 동일하게 피치 조절됩니다 (속도는 유지).
 3. 최종 응답에는 `output_path`(예: `applio/output/xxxxxxxx_final.wav`)가 포함되고,  
    - 정리 단계에서 임시 파일들(`vocals.wav`, `accompaniment.wav`, `*_vocal_infer.wav`)은 삭제되어 **최종 결과물만 남는다.**
 4. 생성된 파일은 `/outputs/{output_id}/download` 또는 `/download?path=<상대경로>`로 내려받을 수 있으며, 허용 경로는 `applio/output` 내부로 제한된다.
 
 ## 주요 기능
+
+### 메모리 관리
+- **별도 프로세스 실행**: RVC와 Spleeter는 별도 프로세스에서 실행되어 메모리 누수를 완전히 방지합니다.
+  - `app/services/rvc_worker.py`: RVC inference를 별도 프로세스에서 실행
+  - `app/services/spleeter_worker.py`: Spleeter 보컬 분리를 별도 프로세스에서 실행
+  - 프로세스 종료 시 모든 메모리(CPU, GPU, TensorFlow, PyTorch)가 자동으로 해제됩니다.
+- **메모리 추적**: 추론 작업 전후 메모리 사용량을 로깅하여 메모리 누수를 모니터링합니다.
+- **자동 정리**: 작업 완료 후 임시 파일과 메모리를 자동으로 정리합니다.
 
 ### 작업 큐 및 재시도
 - 모든 작업은 비동기 큐에서 실행됩니다.
@@ -213,11 +264,22 @@ job_id = queue.enqueue_async( # 작업 등록 (즉시 job_id 반환)
 - 작업 취소 버튼을 통해 실행 중인 작업을 취소할 수 있습니다.
 - 모델 및 출력 파일은 테이블에서 직접 삭제할 수 있습니다.
 
+## 로깅
+
+- 모든 로그는 통일된 포맷으로 기록됩니다: `"%(asctime)s - %(name)s - %(levelname)s - %(message)s"`
+- 로그 파일:
+  - `logs/app.log`: 일반 로그 (INFO 레벨 이상)
+  - `logs/error.log`: 에러 로그 (ERROR 레벨만)
+- 콘솔에도 동시에 출력되며, UTF-8 인코딩으로 기록됩니다.
+- 에러 발생 시 스택 트레이스가 자동으로 포함됩니다.
+
 ## 기타
 
-- Windows: `start.bat`, Linux/macOS/WSL: `start.sh`로 서버를 빠르게 실행할 수 있습니다.
+- **Docker 기반 실행**: 모든 기능은 Docker 컨테이너에서 실행됩니다.
+- **볼륨 마운트**: 로그와 출력 파일은 호스트 시스템에 마운트되어 컨테이너 재시작 후에도 유지됩니다.
 - FastAPI 설정, 서비스 로직 등은 `app/` 내부에 존재합니다.
 - RVC 관련 자원(모델, 데이터, 학습 설정 등)은 `applio/` 폴더 안에서 관리합니다.
 - CSS는 `app/public/styles.css`에서 별도로 관리됩니다.
+- 코드 품질: 모든 함수에 docstring이 포함되어 있으며, 타입 힌트가 추가되었습니다.
 
 

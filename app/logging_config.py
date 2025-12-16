@@ -34,27 +34,49 @@ def _build_rotating_handler(
 
 
 def configure_logging() -> None:
-    """루트 로거에 콘솔 + 파일 핸들러를 구성한다."""
+    """루트 로거에 콘솔 + 파일 핸들러를 구성한다.
+    
+    모든 로그(INFO, WARNING, ERROR 포함)는 app.log에 저장됩니다.
+    ERROR 로그는 추가로 error.log에도 저장됩니다.
+    """
     if getattr(configure_logging, "_configured", False):
         return
 
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
 
+    # 콘솔 핸들러
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(logging.Formatter(_LOG_FORMAT))
 
-    app_handler = _build_rotating_handler(LOG_FILE_PATH)
+    # app.log 핸들러: 모든 로그(INFO 이상) 저장
+    app_handler = _build_rotating_handler(LOG_FILE_PATH, level=logging.INFO)
+    
+    # error.log 핸들러: ERROR 레벨만 추가로 저장
     error_handler = _build_rotating_handler(
         ERROR_FILE_PATH, level=logging.ERROR, max_bytes=20 * 1024 * 1024, backups=5
     )
 
-    # 기존 uvicorn/표준 핸들러는 유지하고, 추가로 파일/콘솔 핸들러만 붙인다.
-    # 이렇게 하면 `uvicorn app.main:app` 로 직접 실행해도
-    # uvicorn 기본 콘솔 출력 + 우리의 로그 출력이 모두 터미널에 표시된다.
+    # uvicorn 로거도 app.log에 저장되도록 설정
+    # uvicorn의 기본 핸들러를 제거하고 루트 로거로만 전파되도록 설정
+    uvicorn_logger = logging.getLogger("uvicorn")
+    uvicorn_logger.setLevel(logging.INFO)
+    uvicorn_logger.propagate = True  # 루트 로거로 전파
+    # uvicorn이 시작되기 전이므로 핸들러가 없을 수 있음
+    if uvicorn_logger.handlers:
+        uvicorn_logger.handlers = []  # 기본 핸들러 제거
+    
+    uvicorn_access_logger = logging.getLogger("uvicorn.access")
+    uvicorn_access_logger.setLevel(logging.INFO)
+    uvicorn_access_logger.propagate = True  # 루트 로거로 전파
+    if uvicorn_access_logger.handlers:
+        uvicorn_access_logger.handlers = []  # 기본 핸들러 제거
+
+    # 루트 로거에 핸들러 추가
+    # 모든 로그(INFO, WARNING, ERROR)는 app.log에 저장됨
     root_logger.addHandler(console_handler)
     root_logger.addHandler(app_handler)
-    root_logger.addHandler(error_handler)
+    root_logger.addHandler(error_handler)  # ERROR는 추가로 error.log에도 저장
 
     configure_logging._configured = True
 

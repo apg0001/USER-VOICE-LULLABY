@@ -38,4 +38,5 @@ RUN pip install --no-cache-dir \
 COPY . .
 
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 로깅은 app/main.py의 startup 이벤트에서 configure_logging()으로 설정됨
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-config", "/dev/null"]
