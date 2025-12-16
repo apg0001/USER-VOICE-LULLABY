@@ -36,20 +36,22 @@ def _build_rotating_handler(
 def configure_logging() -> None:
     """루트 로거에 콘솔 + 파일 핸들러를 구성한다.
     
-    모든 로그(INFO, WARNING, ERROR 포함)는 app.log에 저장됩니다.
-    ERROR 로그는 추가로 error.log에도 저장됩니다.
+    - 콘솔: DEBUG 레벨 이상 모든 로그 출력
+    - app.log: INFO 레벨 이상만 저장
+    - error.log: ERROR 레벨만 추가로 저장
     """
     if getattr(configure_logging, "_configured", False):
         return
 
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
+    root_logger.setLevel(logging.DEBUG)  # 루트 로거는 DEBUG로 설정하여 모든 로그를 받음
 
-    # 콘솔 핸들러
+    # 콘솔 핸들러: DEBUG 레벨 이상 모든 로그 출력
     console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.DEBUG)  # DEBUG 레벨부터 출력
     console_handler.setFormatter(logging.Formatter(_LOG_FORMAT))
 
-    # app.log 핸들러: 모든 로그(INFO 이상) 저장
+    # app.log 핸들러: INFO 레벨 이상만 저장
     app_handler = _build_rotating_handler(LOG_FILE_PATH, level=logging.INFO)
     
     # error.log 핸들러: ERROR 레벨만 추가로 저장

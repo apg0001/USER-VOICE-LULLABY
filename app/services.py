@@ -325,7 +325,7 @@ async def _remove_dataset(dataset_path):
     try:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, lambda: shutil.rmtree(path))
-        logger.info(f"데이터셋 디렉토리 삭제 완료: {dataset_path}")
+        logger.debug(f"데이터셋 디렉토리 삭제 완료: {dataset_path}")
     except Exception as e:
         logger.error(f"데이터셋 삭제 중 오류 발생: {dataset_path} - {e}")
         raise
@@ -364,11 +364,11 @@ def _update_model_info_files(model_dir: Path) -> None:
         added_index = new_index - existing_index
 
         if added_pth:
-            logger.info(
+            logger.debug(
                 f"새 모델 파일 감지 및 model_info.json 업데이트: {', '.join(sorted(added_pth))}"
             )
         if added_index:
-            logger.info(
+            logger.debug(
                 f"새 인덱스 파일 감지 및 model_info.json 업데이트: {', '.join(sorted(added_index))}"
             )
 
@@ -481,6 +481,15 @@ async def train_model(
     model_dir = _logs_dir(model_name)
     logger.info("Training start | model=%s dataset=%s", model_name, dataset)
 
+    # 메모리 추적: 학습 시작 전
+    initial_mem = None
+    try:
+        process = psutil.Process()
+        initial_mem = process.memory_info().rss / (1024**2)  # MB
+    except Exception:
+        pass
+    _log_memory_usage("학습 시작 전")
+
     # 학습 시작 전에 model_info.json 생성
     # 학습 중간에 실패하더라도 모델 정보는 남아있어야 하므로,
     # 학습 시작 전에 기본 정보를 저장합니다.
@@ -502,12 +511,12 @@ async def train_model(
 
     with open(model_info_path, "w", encoding="utf-8") as f:
         json.dump(model_info_json, f, indent=2, ensure_ascii=False)
-    logger.info(f"모델 정보 파일 생성 완료 (학습 시작 전): {model_info_path}")
+    logger.debug(f"모델 정보 파일 생성 완료 (학습 시작 전): {model_info_path}")
 
     # 학습용 오디오 파일 보컬 분리
     # 추론과 동일하게 보컬만 추출하여 학습 품질을 향상시킵니다.
     # 별도 프로세스에서 실행되므로 TensorFlow 메모리 누수 없이 자동으로 정리됩니다.
-    logger.info("학습용 오디오 파일 보컬 분리 시작")
+    logger.debug("학습용 오디오 파일 보컬 분리 시작")
     audio_extensions = {".wav", ".mp3", ".flac", ".m4a", ".ogg"}
     audio_files = [
         f
@@ -518,7 +527,7 @@ async def train_model(
     if not audio_files:
         raise ValueError(f"학습용 오디오 파일을 찾을 수 없습니다: {dataset}")
 
-    logger.info(f"보컬 분리 대상 파일 수: {len(audio_files)}")
+    logger.debug(f"보컬 분리 대상 파일 수: {len(audio_files)}")
 
     # spleeter가 생성하는 임시 분리 폴더를 위한 디렉토리
     temp_separation_dir = dataset / "temp_separation"
@@ -528,7 +537,7 @@ async def train_model(
 
     try:
         for audio_file in audio_files:
-            logger.info(f"보컬 분리 중: {audio_file.name}")
+            logger.debug(f"보컬 분리 중: {audio_file.name}")
             try:
                 separation_result = await separate_vocal_instrumental(
                     str(audio_file), str(temp_separation_dir)
@@ -550,7 +559,7 @@ async def train_model(
                 # 원본 파일 확장자는 유지하며, 보컬 파일로 덮어쓰기합니다.
                 # 백업은 생성하지 않습니다 (사용자가 원본을 보존하려면 미리 백업해야 함).
                 shutil.copy2(vocals_path, audio_file)
-                logger.info(f"보컬 파일로 교체 완료: {audio_file.name}")
+                logger.debug(f"보컬 파일로 교체 완료: {audio_file.name}")
 
                 # 나중에 정리하기 위해 분리 폴더 경로 저장
                 separation_folder = vocals_path.parent
@@ -568,14 +577,14 @@ async def train_model(
                     exc_info=True,
                 )
 
-        logger.info("학습용 오디오 파일 보컬 분리 완료")
+        logger.debug("학습용 오디오 파일 보컬 분리 완료")
 
     finally:
         # 보컬 분리 성공/실패 여부와 관계없이 임시 파일 정리
         if temp_separation_dir.exists():
             try:
                 await _run_blocking(shutil.rmtree, temp_separation_dir)
-                logger.info(f"임시 분리 폴더 삭제 완료: {temp_separation_dir}")
+                logger.debug(f"임시 분리 폴더 삭제 완료: {temp_separation_dir}")
             except Exception as e:
                 logger.warning(f"임시 분리 폴더 삭제 실패: {temp_separation_dir} - {e}")
 
@@ -594,6 +603,7 @@ async def train_model(
     # extract: 특징 추출 (F0, 임베딩 등)
     # train: 모델 학습 및 인덱스 생성
     await _run_blocking(run_prerequisites_script, True, True, True)
+    _log_memory_usage("Prerequisites 완료 후")
 
     await _run_blocking(
         run_preprocess_script,
@@ -609,6 +619,7 @@ async def train_model(
         defaults.overlap_len,
         defaults.normalization_mode,
     )
+    _log_memory_usage("전처리 완료 후")
 
     await _run_blocking(
         run_extract_script,
@@ -621,6 +632,7 @@ async def train_model(
         None,
         defaults.include_mutes,
     )
+    _log_memory_usage("특징 추출 완료 후")
 
     await _run_blocking(
         run_train_script,
@@ -644,6 +656,7 @@ async def train_model(
         vocoder,
         defaults.checkpointing,
     )
+    _log_memory_usage("학습 완료 후")
 
     logger.info("Training finished | model=%s dir=%s", model_name, model_dir)
 
@@ -654,7 +667,7 @@ async def train_model(
         raise RuntimeError(
             f"학습이 완료되지 않았습니다. 모델 파일(.index)이 생성되지 않았습니다: {model_dir}"
         )
-    logger.info(f"생성된 모델 파일 수: {len(model_files)}")
+    logger.debug(f"생성된 모델 파일 수: {len(model_files)}")
 
     # 학습 완료 후 생성된 모든 .pth와 .index 파일 경로를 model_info.json에 저장
     _update_model_info_files(model_dir)
@@ -671,7 +684,7 @@ async def train_model(
 
     try:
         await _remove_preprocess(model_dir)
-        logger.info("모델 .pth 파일을 제외한 전처리 산출물 삭제 완료: %s", model_dir)
+        logger.debug("모델 .pth 파일을 제외한 전처리 산출물 삭제 완료: %s", model_dir)
     except FileNotFoundError:
         logger.warning("전처리 디렉토리 삭제 대상 없음: %s", model_dir)
     except Exception as e:
@@ -755,15 +768,6 @@ async def run_inference(
 
     unique_id = uuid4().hex
 
-    # 메모리 추적: 추론 시작 전
-    initial_mem = None
-    try:
-        process = psutil.Process()
-        initial_mem = process.memory_info().rss / (1024**2)  # MB
-    except Exception:
-        pass
-    _log_memory_usage("추론 시작 전")
-
     # finally 블록에서 정리하기 위한 변수
     vocals_path = None
     instrumental_path = None
@@ -774,7 +778,7 @@ async def run_inference(
         # 1단계: 보컬/인스트루멘탈 분리
         # Spleeter를 사용하여 입력 오디오를 보컬과 인스트루멘탈로 분리합니다.
         # 보컬만 변환하여 원본 인스트루멘탈과 합성하면 더 자연스러운 결과를 얻을 수 있습니다.
-        logger.info(f"보컬 분리 시작: {input_path}")
+        logger.debug(f"보컬 분리 시작: {input_path}")
         separation_result = None
         try:
             separation_result = await separate_vocal_instrumental(
@@ -783,24 +787,22 @@ async def run_inference(
             vocals_path = Path(separation_result["vocals"])
             instrumental_path = Path(separation_result["instrumental"])
             separation_folder = vocals_path.parent
-            logger.info(f"분리 완료 - 보컬: {vocals_path}, 인스트: {instrumental_path}")
+            logger.debug(f"분리 완료 - 보컬: {vocals_path}, 인스트: {instrumental_path}")
         finally:
             # 보컬 분리 단계 메모리 정리
             if separation_result is not None:
                 del separation_result
             # 별도 프로세스에서 실행했으므로 메모리 정리 불필요 (프로세스 종료 시 자동 해제)
-            _log_memory_usage("보컬 분리 후")
 
         # 2단계: 보컬만 inference 실행
         # 분리된 보컬에만 음성 변환을 적용합니다.
         # 인스트루멘탈은 원본 그대로 유지하여 음질 손실을 최소화합니다.
-        logger.info(f"보컬 inference 시작: {vocals_path}")
+        logger.debug(f"보컬 inference 시작: {vocals_path}")
         temp_vocal_output = output_folder / f"{unique_id}_vocal_infer.wav"
         vocal_message = None
         vocal_exported = None
 
         try:
-            _log_memory_usage("Inference 실행 전")
             # prerequisites: 의존성 확인 및 초기화
             await _run_blocking(run_prerequisites_script, True, True, True)
 
@@ -914,13 +916,12 @@ async def run_inference(
                         pass
             
             vocal_message, vocal_exported = await _run_blocking(_run_rvc_in_process)
-            _log_memory_usage("Inference 스크립트 완료 직후")
         except Exception as e:
             logger.error(f"보컬 inference 실행 중 오류 발생: {e}", exc_info=True)
             raise RuntimeError(f"보컬 inference 실패: {str(e)}")
         finally:
             # 별도 프로세스에서 실행했으므로 메모리 정리 불필요 (프로세스 종료 시 자동 해제)
-            _log_memory_usage("Inference 실행 후 (프로세스 종료)")
+            pass
 
         # 출력 파일 검증: TensorFlow 오류로 인해 파일이 생성되지 않았거나 비어있을 수 있음
         vocal_exported_path = Path(vocal_exported)
@@ -936,14 +937,13 @@ async def run_inference(
             logger.error(error_msg)
             raise RuntimeError(error_msg)
 
-        logger.info(
+        logger.debug(
             f"보컬 inference 완료: {vocal_exported} (크기: {vocal_exported_path.stat().st_size} bytes)"
         )
 
         # 3단계: 변환된 보컬과 원본 인스트루멘탈 합성
         # 변환된 보컬과 원본 인스트루멘탈을 믹싱하여 최종 출력을 생성합니다.
-        logger.info("오디오 합성 시작")
-        _log_memory_usage("오디오 합성 전")
+        logger.debug("오디오 합성 시작")
         final_output = output_folder / f"{unique_id}_final.wav"
         final_output_path = None
 
@@ -957,9 +957,8 @@ async def run_inference(
         finally:
             # 합성 단계 메모리 정리
             gc.collect()
-            _log_memory_usage("오디오 합성 후")
 
-        logger.info(f"최종 합성 완료: {final_output_path}")
+        logger.debug(f"최종 합성 완료: {final_output_path}")
 
         # 최종 출력 파일 검증
         final_path = Path(final_output_path)
@@ -1002,7 +1001,7 @@ async def run_inference(
             if path and path.exists():
                 try:
                     await _remove_file(str(path))
-                    logger.info(f"임시 파일 삭제: {path}")
+                    logger.debug(f"임시 파일 삭제: {path}")
                 except Exception as e:
                     logger.warning(f"임시 파일 삭제 실패: {path} - {e}")
 
@@ -1014,7 +1013,7 @@ async def run_inference(
         ):
             try:
                 await _run_blocking(shutil.rmtree, separation_folder)
-                logger.info(f"임시 추론 폴더 삭제 완료: {separation_folder}")
+                logger.debug(f"임시 추론 폴더 삭제 완료: {separation_folder}")
             except Exception as e:
                 logger.warning(f"임시 추론 폴더 삭제 실패: {separation_folder} - {e}")
 
@@ -1028,7 +1027,7 @@ async def run_inference(
         ):
             try:
                 await _remove_file(input_audio_path)
-                logger.info(f"입력 임시 오디오 파일 삭제 완료: {input_audio_path}")
+                logger.debug(f"입력 임시 오디오 파일 삭제 완료: {input_audio_path}")
             except Exception as e:
                 logger.warning(
                     f"입력 임시 오디오 파일 삭제 실패: {input_audio_path} - {e}"
@@ -1036,29 +1035,6 @@ async def run_inference(
         
         # 최종 메모리 정리
         _cleanup_all_memory()
-        _log_memory_usage("최종 정리 후")
-        
-        # 메모리 증가량 계산
-        try:
-            process = psutil.Process()
-            final_mem = process.memory_info().rss / (1024**2)  # MB
-            if initial_mem is not None:
-                mem_increase = final_mem - initial_mem
-                logger.info(
-                    f"[메모리 추적] 추론 작업 완료 | "
-                    f"시작: {initial_mem:.1f} MB | "
-                    f"종료: {final_mem:.1f} MB | "
-                    f"증가: {mem_increase:+.1f} MB"
-                )
-                if mem_increase > 100:
-                    logger.warning(
-                        f"[메모리 누수 의심] 추론 작업 후 메모리가 {mem_increase:.1f} MB 증가했습니다. "
-                        f"모델이나 오디오 데이터가 제대로 해제되지 않았을 수 있습니다."
-                    )
-            else:
-                logger.info(f"[메모리 추적] 추론 작업 완료 후 최종 메모리: {final_mem:.1f} MB")
-        except Exception:
-            pass
 
 
 # 보컬 분리 작업 동시 실행 제한
@@ -1150,7 +1126,7 @@ async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) ->
     if vocals_path.exists() and instrumental_path.exists():
         # 빈 파일 체크: 파일이 생성되었지만 비어있을 수 있음
         if vocals_path.stat().st_size > 0 and instrumental_path.stat().st_size > 0:
-            logger.info(
+            logger.debug(
                 f"보컬 분리 성공 | input={input_audio_path} | "
                 f"vocals={vocals_path} ({vocals_path.stat().st_size} bytes) | "
                 f"instrumental={instrumental_path} ({instrumental_path.stat().st_size} bytes)"

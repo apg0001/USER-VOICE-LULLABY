@@ -89,13 +89,13 @@ class OutputRepository:
             # 파일 삭제
             if output_path.is_file():
                 output_path.unlink()
-                self._logger.info(f"출력 파일 삭제 완료: {output_id}")
+                self._logger.debug(f"출력 파일 삭제 완료: {output_id}")
                 
                 # 빈 디렉토리 정리
                 parent = output_path.parent
                 if parent != self.output_root and not any(parent.iterdir()):
                     parent.rmdir()
-                    self._logger.info(f"빈 디렉토리 삭제: {parent}")
+                    self._logger.debug(f"빈 디렉토리 삭제: {parent}")
             else:
                 raise ValueError(f"파일이 아닙니다: {output_id}")
         except FileNotFoundError:

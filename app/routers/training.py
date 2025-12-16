@@ -69,9 +69,9 @@ async def start_training(
 
     try:
         # 파일 저장
-        logger.info(f"학습 파일 저장 시작 | model_id={model_id} | files_count={len(files)}")
+        logger.debug(f"학습 파일 저장 시작 | model_id={model_id} | files_count={len(files)}")
         dataset_path = file_repo.save_training_files(model_id, files)
-        logger.info(f"학습 파일 저장 완료 | dataset_path={dataset_path}")
+        logger.debug(f"학습 파일 저장 완료 | dataset_path={dataset_path}")
 
         # 비동기 작업 등록 (모든 요청을 큐에 추가, 리소스 확인은 워커에서 수행)
         request = TrainFilesRequest(
