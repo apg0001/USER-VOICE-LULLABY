@@ -40,8 +40,10 @@ class ModelRepository:
                 continue
             
             model_id = model_dir.name
-            # G_와 D_로 시작하는 파일 제외 (추론에 사용하지 않음)
+            # 추론용 모델 파일 (G_와 D_ 제외)
             pth_files = [f.name for f in model_dir.glob("*.pth") if not (f.name.startswith("G_") or f.name.startswith("D_"))]
+            # 모든 모델 파일 (Pretrained Model 드롭다운용 - G_와 D_ 포함)
+            all_pth_files = [f.name for f in model_dir.glob("*.pth")]
             index_files = [f.name for f in model_dir.glob("*.index")]
             
             # .pth 파일이 있는 경우만 모델로 간주
@@ -52,7 +54,9 @@ class ModelRepository:
                 model_info_json = self._load_model_info(model_dir)
                 
                 # 절대 경로 생성
-                pth_files_absolute = [str((model_dir / f).resolve()) for f in sorted(pth_files)]
+                # model_files: 추론용 (G_와 D_ 제외)
+                # model_files_absolute: 모든 파일 (Pretrained Model 드롭다운용 - G_와 D_ 포함)
+                pth_files_absolute = [str((model_dir / f).resolve()) for f in sorted(all_pth_files)]
                 index_files_absolute = [str((model_dir / f).resolve()) for f in sorted(index_files)]
                 
                 models.append(
