@@ -4,6 +4,7 @@ import asyncio
 import gc
 import os
 import shutil
+import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -14,7 +15,6 @@ import librosa
 import numpy as np
 import psutil
 import soundfile as sf
-from spleeter.separator import Separator
 
 from app.constants import RVC_LOGS_DIR, RVC_ROOT, DEFAULT_OUTPUT_DIR
 from app.logging_config import PROJECT_ROOT, get_logger
@@ -53,6 +53,10 @@ logger = get_logger(__name__)
 __all__ = ["run_inference", "train_model"]
 
 
+# ============================================================================
+# 메모리 관리 유틸리티 함수들
+# ============================================================================
+
 def _log_memory_usage(stage: str, process=None):
     """메모리 사용량 로깅 (디버그용)"""
     try:
@@ -80,6 +84,67 @@ def _log_memory_usage(stage: str, process=None):
         )
     except Exception as e:
         logger.debug(f"메모리 추적 실패 ({stage}): {e}")
+
+
+def _cleanup_gpu_memory():
+    """GPU 메모리 정리"""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+    except Exception:
+        pass
+
+
+def _cleanup_tensorflow_memory():
+    """TensorFlow 메모리 정리"""
+    try:
+        import tensorflow as tf
+        # Keras 세션 정리
+        tf.keras.backend.clear_session()
+        # TensorFlow 1.x 그래프 리셋 시도
+        try:
+            if hasattr(tf, 'compat') and hasattr(tf.compat.v1, 'reset_default_graph'):
+                tf.compat.v1.reset_default_graph()
+        except (AttributeError, RuntimeError, IndexError):
+            pass
+    except Exception:
+        pass
+
+
+def _cleanup_audio_data(**locals_dict):
+    """오디오 데이터 메모리 해제"""
+    audio_keys = ['audio', 'audio_opt', 'chunks', 'converted_chunks', 'cleaned_audio', 
+                  'vocals', 'instrumental', 'mixed']
+    for key in audio_keys:
+        if key in locals_dict:
+            obj = locals_dict[key]
+            try:
+                if isinstance(obj, np.ndarray):
+                    obj = None
+                elif isinstance(obj, list):
+                    for item in obj:
+                        if isinstance(item, np.ndarray):
+                            item = None
+                        del item
+                del obj
+            except Exception:
+                pass
+
+
+def _force_garbage_collection():
+    """가비지 컬렉션 강제 실행 (한 번만)"""
+    gc.collect()
+
+
+def _cleanup_all_memory():
+    """모든 메모리 정리 (GPU, TensorFlow, 가비지 컬렉션)"""
+    _cleanup_gpu_memory()
+    _cleanup_tensorflow_memory()
+    _force_garbage_collection()
+
+
 
 
 def _ensure_directory(path: Path) -> Path:
@@ -285,6 +350,7 @@ async def train_model(
 
     # 학습용 오디오 파일 보컬 분리
     # 추론과 동일하게 보컬만 추출하여 학습 품질을 향상시킵니다.
+    # 별도 프로세스에서 실행되므로 TensorFlow 메모리 누수 없이 자동으로 정리됩니다.
     logger.info("학습용 오디오 파일 보컬 분리 시작")
     audio_extensions = {".wav", ".mp3", ".flac", ".m4a", ".ogg"}
     audio_files = [
@@ -566,7 +632,7 @@ async def run_inference(
             # 보컬 분리 단계 메모리 정리
             if separation_result is not None:
                 del separation_result
-            gc.collect()
+            # 별도 프로세스에서 실행했으므로 메모리 정리 불필요 (프로세스 종료 시 자동 해제)
             _log_memory_usage("보컬 분리 후")
 
         # 2단계: 보컬만 inference 실행
@@ -630,10 +696,8 @@ async def run_inference(
             raise RuntimeError(f"보컬 inference 실패: {str(e)}")
         finally:
             # inference 단계 메모리 정리
-            import torch
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            gc.collect()
+            _cleanup_gpu_memory()
+            _force_garbage_collection()
             _log_memory_usage("Inference 실행 후 (정리 완료)")
 
         # 출력 파일 검증: TensorFlow 오류로 인해 파일이 생성되지 않았거나 비어있을 수 있음
@@ -749,10 +813,7 @@ async def run_inference(
                 )
         
         # 최종 메모리 정리
-        import torch
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        gc.collect()
+        _cleanup_all_memory()
         _log_memory_usage("최종 정리 후")
         
         # 메모리 증가량 계산 (디버그용)
@@ -789,7 +850,10 @@ async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) ->
     """오디오를 보컬/인스트루멘탈로 분리
 
     spleeter를 사용하여 입력 오디오를 보컬과 인스트루멘탈로 분리합니다.
+    별도 프로세스에서 실행되므로 TensorFlow 메모리 누수 없이 자동으로 정리됩니다.
     TensorFlow Graph 충돌 방지를 위해 락을 사용하여 동시 실행을 제한합니다.
+    
+    이 함수는 추론(inference)과 학습(train) 모두에서 사용됩니다.
     """
     input_path = Path(input_audio_path)
     if not input_path.exists():
@@ -809,41 +873,34 @@ async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) ->
         separation_error = None
 
         try:
-            # 별도 스레드에서 실행하여 메인 이벤트 루프와 TensorFlow 컨텍스트 격리
+            # 별도 프로세스에서 실행하여 메모리 완전 분리
+            # 프로세스가 종료되면 모든 TensorFlow 메모리가 자동으로 해제됩니다.
             def _separate_audio():
-                # spleeter가 자체적으로 TensorFlow Graph를 관리하므로
-                # 우리가 명시적으로 Graph 컨텍스트를 만들지 않습니다.
-                # 락으로 동시 실행을 제한하여 충돌을 방지합니다.
-                separator = None
-                try:
-                    # 각 작업마다 새로운 Separator 인스턴스를 생성하여
-                    # 이전 작업의 상태가 영향을 주지 않도록 합니다.
-                    separator = Separator("spleeter:2stems")
-                    separator.separate_to_file(input_audio_path, output_dir)
-                except Exception as e:
-                    logger.error(
-                        f"보컬 분리 실행 중 오류 | input={input_audio_path} | error={e}",
-                        exc_info=True,
-                    )
-                    raise
-                finally:
-                    # TensorFlow 메모리 정리
-                    if separator is not None:
-                        del separator
-                    try:
-                        import tensorflow as tf
-                        # TensorFlow 컨텍스트가 존재하는지 확인 후 정리
-                        # clear_session()은 안전하게 호출 가능
-                        tf.keras.backend.clear_session()
-                    except (AttributeError, RuntimeError, IndexError) as e:
-                        # TensorFlow 컨텍스트 오류는 무시 (이미 정리되었거나 없음)
-                        logger.debug(f"TensorFlow 세션 정리 중 오류 (무시): {e}")
-                    except Exception as e:
-                        # 기타 TensorFlow 관련 오류도 무시
-                        logger.debug(f"TensorFlow 정리 중 예상치 못한 오류 (무시): {e}")
+                worker_script = PROJECT_ROOT / "app" / "services" / "spleeter_worker.py"
+                if not worker_script.exists():
+                    raise FileNotFoundError(f"Spleeter worker script not found: {worker_script}")
+                
+                # Python 인터프리터 경로
+                python_exe = sys.executable
+                
+                # 별도 프로세스에서 실행
+                result = subprocess.run(
+                    [python_exe, str(worker_script), input_audio_path, output_dir],
+                    capture_output=True,
+                    text=True,
+                    timeout=600,  # 10분 타임아웃
+                )
+                
+                if result.returncode != 0:
+                    error_msg = f"Spleeter 프로세스 실패 (exit code: {result.returncode})"
+                    if result.stderr:
+                        error_msg += f"\nStderr: {result.stderr}"
+                    if result.stdout:
+                        error_msg += f"\nStdout: {result.stdout}"
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg)
 
             # 전용 스레드 풀 사용: max_workers=1로 설정하여 한 번에 하나의 작업만 실행
-            # TensorFlow Graph 충돌을 완전히 방지하기 위해 스레드 레벨에서도 제한합니다.
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(_separation_executor, _separate_audio)
             separation_success = True
@@ -933,13 +990,7 @@ async def merge_vocal_instrumental(
             return output_path
         finally:
             # 오디오 데이터 메모리 해제
-            if vocals is not None:
-                del vocals
-            if instrumental is not None:
-                del instrumental
-            if mixed is not None:
-                del mixed
-            # 가비지 컬렉션 강제 실행
-            gc.collect()
+            _cleanup_audio_data(vocals=vocals, instrumental=instrumental, mixed=mixed)
+            _force_garbage_collection()
 
     return await loop.run_in_executor(None, _merge_audio)

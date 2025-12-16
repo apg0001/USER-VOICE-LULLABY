@@ -357,31 +357,58 @@ class VoiceConverter:
             print(traceback.format_exc())
         finally:
             # 작업 완료 후 메모리 정리
-            # 오디오 데이터 해제
+            print("[디버그] convert_audio() finally 블록 시작")
+            
+            # 오디오 데이터 해제 (CPU 메모리 해제)
             try:
                 if 'audio' in locals():
+                    # numpy 배열 메모리 명시적 해제
+                    if isinstance(audio, np.ndarray):
+                        audio = None
                     del audio
                 if 'audio_opt' in locals():
+                    if isinstance(audio_opt, np.ndarray):
+                        audio_opt = None
                     del audio_opt
                 if 'chunks' in locals():
+                    # chunks 내부의 모든 오디오 데이터 삭제
+                    if isinstance(chunks, list):
+                        for chunk in chunks:
+                            if chunk is not None and isinstance(chunk, np.ndarray):
+                                chunk = None
+                            del chunk
                     del chunks
                 if 'converted_chunks' in locals():
+                    # converted_chunks 내부의 모든 오디오 데이터 삭제
+                    if isinstance(converted_chunks, list):
+                        for chunk in converted_chunks:
+                            if chunk is not None and isinstance(chunk, np.ndarray):
+                                chunk = None
+                            del chunk
                     del converted_chunks
                 if 'cleaned_audio' in locals():
+                    if isinstance(cleaned_audio, np.ndarray):
+                        cleaned_audio = None
                     del cleaned_audio
-            except Exception:
-                pass
-            
-            # 모델 인스턴스 정리 (재사용을 위해 완전히 정리하지는 않음)
-            # 단, 오디오 관련 데이터는 명시적으로 해제
+            except Exception as e:
+                print(f"[디버그] 오디오 데이터 해제 중 오류: {e}")
             
             # GPU 메모리 정리
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            try:
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+            except Exception as e:
+                print(f"[디버그] GPU 메모리 정리 중 오류: {e}")
             
-            # Python 가비지 컬렉션 강제 실행
-            import gc
-            gc.collect()
+            # 가비지 컬렉션 (한 번만)
+            try:
+                import gc
+                gc.collect()
+            except Exception as e:
+                print(f"[디버그] 가비지 컬렉션 중 오류: {e}")
+            
+            print("[디버그] convert_audio() finally 블록 완료")
 
     def convert_audio_batch(
         self,
@@ -484,43 +511,146 @@ class VoiceConverter:
     def cleanup_model(self):
         """
         Cleans up the model and releases resources.
+        메모리 조회는 외부에서 하도록 하여 cleanup 과정에서 메모리 증가를 방지합니다.
         """
+        print("[디버그] cleanup_model() 호출 시작")
+        
         try:
-            # 모델 인스턴스 정리
-            if self.net_g is not None:
-                del self.net_g
-                self.net_g = None
-            if self.vc is not None:
-                del self.vc
-                self.vc = None
-            if self.hubert_model is not None:
-                del self.hubert_model
-                self.hubert_model = None
+            # 1. GPU 메모리 즉시 정리 (모델 삭제 전)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
             
-            # 기타 변수 정리
+            # 2. 모델 인스턴스 직접 삭제 (CPU 이동 없이 - 메모리 복사 방지)
+            # state_dict() 호출을 피하여 메모리 복사를 방지합니다.
+            if self.net_g is not None:
+                try:
+                    # 모델의 모든 파라미터와 버퍼를 직접 삭제
+                    if hasattr(self.net_g, 'parameters'):
+                        for param in self.net_g.parameters():
+                            if param is not None:
+                                param.data = None
+                                if hasattr(param, 'grad') and param.grad is not None:
+                                    param.grad = None
+                    if hasattr(self.net_g, 'buffers'):
+                        for buffer in self.net_g.buffers():
+                            if buffer is not None:
+                                buffer.data = None
+                    # 모델 자체 삭제
+                    del self.net_g
+                    self.net_g = None
+                except Exception as e:
+                    print(f"[디버그] net_g 삭제 중 오류: {e}")
+                    self.net_g = None
+            
+            if self.vc is not None:
+                try:
+                    # Pipeline의 모든 속성 정리
+                    if hasattr(self.vc, 'autotune') and self.vc.autotune is not None:
+                        try:
+                            del self.vc.autotune
+                        except Exception:
+                            pass
+                    # Pipeline 내부의 다른 리소스 정리
+                    for attr_name in ['f0_model', 'f0_predictor']:
+                        if hasattr(self.vc, attr_name):
+                            try:
+                                attr = getattr(self.vc, attr_name)
+                                if attr is not None:
+                                    del attr
+                                    setattr(self.vc, attr_name, None)
+                            except Exception:
+                                pass
+                    del self.vc
+                    self.vc = None
+                except Exception as e:
+                    print(f"[디버그] vc 삭제 중 오류: {e}")
+                    self.vc = None
+            
+            if self.hubert_model is not None:
+                try:
+                    # Hubert 모델의 모든 파라미터와 버퍼를 직접 삭제
+                    if hasattr(self.hubert_model, 'parameters'):
+                        for param in self.hubert_model.parameters():
+                            if param is not None:
+                                param.data = None
+                                if hasattr(param, 'grad') and param.grad is not None:
+                                    param.grad = None
+                    if hasattr(self.hubert_model, 'buffers'):
+                        for buffer in self.hubert_model.buffers():
+                            if buffer is not None:
+                                buffer.data = None
+                    # 모델 자체 삭제
+                    del self.hubert_model
+                    self.hubert_model = None
+                except Exception as e:
+                    print(f"[디버그] hubert_model 삭제 중 오류: {e}")
+                    self.hubert_model = None
+            
+            # 3. 체크포인트 삭제
+            if self.cpt is not None:
+                try:
+                    # 체크포인트 내부의 모든 텐서 삭제
+                    if isinstance(self.cpt, dict):
+                        for key in list(self.cpt.keys()):
+                            if isinstance(self.cpt[key], dict):
+                                for sub_key in list(self.cpt[key].keys()):
+                                    if isinstance(self.cpt[key][sub_key], torch.Tensor):
+                                        del self.cpt[key][sub_key]
+                            elif isinstance(self.cpt[key], torch.Tensor):
+                                del self.cpt[key]
+                    del self.cpt
+                    self.cpt = None
+                except Exception:
+                    self.cpt = None
+            
+            # 4. 기타 변수 정리
             self.n_spk = None
             self.tgt_sr = None
             self.version = None
             self.use_f0 = None
-            
-            # 체크포인트 정리
-            if self.cpt is not None:
-                del self.cpt
-                self.cpt = None
-            
             self.loaded_model = None
             self.last_embedder_model = None
             
-            # GPU 메모리 정리
+            # 5. GPU 메모리 최종 정리
             if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+                for _ in range(3):
+                    torch.cuda.empty_cache()
+                torch.cuda.synchronize()
             
-            # 가비지 컬렉션
+            # 6. 가비지 컬렉션 (여러 번 실행하여 확실히 정리)
             import gc
-            gc.collect()
+            for _ in range(3):
+                gc.collect()
+            
+            print("[디버그] cleanup_model() 완료")
+            
         except Exception as e:
-            # 정리 중 오류 발생해도 계속 진행
-            print(f"Warning: Error during model cleanup: {e}")
+            import traceback
+            print(f"[ERROR] cleanup_model() 중 예외 발생: {e}")
+            print(f"[ERROR] 트레이스백:\n{traceback.format_exc()}")
+            # 예외가 발생해도 최대한 정리 시도
+            try:
+                if self.net_g is not None:
+                    del self.net_g
+                    self.net_g = None
+                if self.vc is not None:
+                    del self.vc
+                    self.vc = None
+                if self.hubert_model is not None:
+                    del self.hubert_model
+                    self.hubert_model = None
+                if self.cpt is not None:
+                    del self.cpt
+                    self.cpt = None
+                import gc
+                for _ in range(3):
+                    gc.collect()
+                if torch.cuda.is_available():
+                    for _ in range(3):
+                        torch.cuda.empty_cache()
+            except Exception:
+                pass
 
     def load_model(self, weight_root):
         """
