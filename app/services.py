@@ -57,8 +57,13 @@ __all__ = ["run_inference", "train_model"]
 # 메모리 관리 유틸리티 함수들
 # ============================================================================
 
-def _log_memory_usage(stage: str, process=None):
-    """메모리 사용량 로깅 (디버그용)"""
+def _log_memory_usage(stage: str, process=None) -> None:
+    """메모리 사용량 로깅
+    
+    Args:
+        stage: 메모리 측정 단계 이름
+        process: psutil.Process 인스턴스 (None이면 현재 프로세스 사용)
+    """
     try:
         if process is None:
             process = psutil.Process()
@@ -86,7 +91,7 @@ def _log_memory_usage(stage: str, process=None):
         logger.debug(f"메모리 추적 실패 ({stage}): {e}")
 
 
-def _cleanup_gpu_memory():
+def _cleanup_gpu_memory() -> None:
     """GPU 메모리 정리"""
     try:
         import torch
@@ -97,7 +102,7 @@ def _cleanup_gpu_memory():
         pass
 
 
-def _cleanup_tensorflow_memory():
+def _cleanup_tensorflow_memory() -> None:
     """TensorFlow 메모리 정리"""
     try:
         import tensorflow as tf
@@ -113,8 +118,12 @@ def _cleanup_tensorflow_memory():
         pass
 
 
-def _cleanup_audio_data(**locals_dict):
-    """오디오 데이터 메모리 해제"""
+def _cleanup_audio_data(**locals_dict) -> None:
+    """오디오 데이터 메모리 해제
+    
+    Args:
+        **locals_dict: 오디오 데이터 변수들 (vocals, instrumental, mixed 등)
+    """
     audio_keys = ['audio', 'audio_opt', 'chunks', 'converted_chunks', 'cleaned_audio', 
                   'vocals', 'instrumental', 'mixed']
     for key in audio_keys:
@@ -133,18 +142,146 @@ def _cleanup_audio_data(**locals_dict):
                 pass
 
 
-def _force_garbage_collection():
-    """가비지 컬렉션 강제 실행 (한 번만)"""
+def _force_garbage_collection() -> None:
+    """가비지 컬렉션 강제 실행"""
     gc.collect()
 
 
-def _cleanup_all_memory():
+def _cleanup_all_memory() -> None:
     """모든 메모리 정리 (GPU, TensorFlow, 가비지 컬렉션)"""
     _cleanup_gpu_memory()
     _cleanup_tensorflow_memory()
     _force_garbage_collection()
 
 
+def _build_rvc_config(
+    pitch: int,
+    index_rate: float,
+    volume_envelope: float,
+    protect: float,
+    f0_method: str,
+    input_path: str,
+    output_path: str,
+    pth_path: str,
+    index_path: str,
+    split_audio: bool,
+    f0_autotune: bool,
+    f0_autotune_strength: float,
+    proposed_pitch: bool,
+    proposed_pitch_threshold: float,
+    clean_audio: bool,
+    clean_strength: float,
+    export_format: str,
+    embedder_model: str,
+    formant_shifting: bool = False,
+    formant_qfrency: float = 1.0,
+    formant_timbre: float = 1.0,
+    post_process: bool = False,
+    reverb: bool = False,
+    reverb_room_size: float = 0.5,
+    reverb_damping: float = 0.5,
+    reverb_wet_gain: float = 0.5,
+    reverb_dry_gain: float = 0.5,
+    reverb_width: float = 0.5,
+    reverb_freeze_mode: float = 0.5,
+) -> dict:
+    """RVC inference 설정 딕셔너리 생성
+    
+    Args:
+        pitch: 피치 조절 값
+        index_rate: 인덱스 비율
+        volume_envelope: 볼륨 엔벨로프
+        protect: 보호 비율
+        f0_method: F0 추출 방법
+        input_path: 입력 파일 경로
+        output_path: 출력 파일 경로
+        pth_path: 모델 파일 경로
+        index_path: 인덱스 파일 경로
+        split_audio: 오디오 분할 여부
+        f0_autotune: F0 오토튠 사용 여부
+        f0_autotune_strength: F0 오토튠 강도
+        proposed_pitch: 제안 피치 사용 여부
+        proposed_pitch_threshold: 제안 피치 임계값
+        clean_audio: 오디오 정리 여부
+        clean_strength: 정리 강도
+        export_format: 내보내기 형식
+        embedder_model: 임베더 모델
+        formant_shifting: 포먼트 시프팅 여부
+        formant_qfrency: 포먼트 주파수
+        formant_timbre: 포먼트 톤
+        post_process: 후처리 여부
+        reverb: 리버브 사용 여부
+        reverb_room_size: 리버브 룸 크기
+        reverb_damping: 리버브 댐핑
+        reverb_wet_gain: 리버브 웻 게인
+        reverb_dry_gain: 리버브 드라이 게인
+        reverb_width: 리버브 너비
+        reverb_freeze_mode: 리버브 프리즈 모드
+        
+    Returns:
+        RVC inference 설정 딕셔너리
+    """
+    return {
+        'pitch': pitch,
+        'index_rate': index_rate,
+        'volume_envelope': volume_envelope,
+        'protect': protect,
+        'f0_method': f0_method,
+        'input_path': input_path,
+        'output_path': output_path,
+        'pth_path': pth_path,
+        'index_path': index_path,
+        'split_audio': split_audio,
+        'f0_autotune': f0_autotune,
+        'f0_autotune_strength': f0_autotune_strength,
+        'proposed_pitch': proposed_pitch,
+        'proposed_pitch_threshold': proposed_pitch_threshold,
+        'clean_audio': clean_audio,
+        'clean_strength': clean_strength,
+        'export_format': export_format,
+        'embedder_model': embedder_model,
+        'embedder_model_custom': None,
+        'formant_shifting': formant_shifting,
+        'formant_qfrency': formant_qfrency,
+        'formant_timbre': formant_timbre,
+        'post_process': post_process,
+        'reverb': reverb,
+        'pitch_shift': False,
+        'limiter': False,
+        'gain': False,
+        'distortion': False,
+        'chorus': False,
+        'bitcrush': False,
+        'clipping': False,
+        'compressor': False,
+        'delay': False,
+        'reverb_room_size': reverb_room_size,
+        'reverb_damping': reverb_damping,
+        'reverb_wet_gain': reverb_wet_gain,
+        'reverb_dry_gain': reverb_dry_gain,
+        'reverb_width': reverb_width,
+        'reverb_freeze_mode': reverb_freeze_mode,
+        'pitch_shift_semitones': 0.0,
+        'limiter_threshold': -6,
+        'limiter_release_time': 0.01,
+        'gain_db': 0.0,
+        'distortion_gain': 25,
+        'chorus_rate': 1.0,
+        'chorus_depth': 0.25,
+        'chorus_center_delay': 7,
+        'chorus_feedback': 0.0,
+        'chorus_mix': 0.5,
+        'bitcrush_bit_depth': 8,
+        'clipping_threshold': -6,
+        'compressor_threshold': 0,
+        'compressor_ratio': 1,
+        'compressor_attack': 1.0,
+        'compressor_release': 100,
+        'delay_seconds': 0.5,
+        'delay_feedback': 0.0,
+        'delay_mix': 0.5,
+        'sid': 0,
+    }
 
 
 def _ensure_directory(path: Path) -> Path:
@@ -307,6 +444,25 @@ async def train_model(
     d_pretrained_path: str = None,
     model_description: Optional[str] = None,
 ) -> dict:
+    """모델 학습 실행
+    
+    Args:
+        model_name: 모델 이름
+        dataset_path: 데이터셋 경로
+        sample_rate: 샘플링 레이트
+        total_epoch: 총 에포크 수
+        batch_size: 배치 크기
+        embedder_model: 임베더 모델
+        vocoder: 보코더
+        overtraining_detector: 오버트레이닝 감지 여부
+        custom_pretrained: 커스텀 사전 학습 모델 사용 여부
+        g_pretrained_path: Generator 사전 학습 모델 경로
+        d_pretrained_path: Discriminator 사전 학습 모델 경로
+        model_description: 모델 설명
+        
+    Returns:
+        학습 완료 정보 딕셔너리
+    """
     defaults = TRAINING_DEFAULTS
     sample_rate = sample_rate or defaults.sample_rate
     total_epoch = total_epoch or defaults.total_epoch
@@ -616,7 +772,7 @@ async def run_inference(
 
     try:
         # 1단계: 보컬/인스트루멘탈 분리
-        # spleeter를 사용하여 입력 오디오를 보컬과 인스트루멘탈로 분리합니다.
+        # Spleeter를 사용하여 입력 오디오를 보컬과 인스트루멘탈로 분리합니다.
         # 보컬만 변환하여 원본 인스트루멘탈과 합성하면 더 자연스러운 결과를 얻을 수 있습니다.
         logger.info(f"보컬 분리 시작: {input_path}")
         separation_result = None
@@ -654,70 +810,40 @@ async def run_inference(
                 import json
                 import tempfile
                 
-                # 임시 JSON 설정 파일 생성
-                config = {
-                    'pitch': pitch,
-                    'index_rate': index_rate,
-                    'volume_envelope': volume_envelope,
-                    'protect': protect,
-                    'f0_method': defaults.f0_method,
-                    'input_path': str(vocals_path),
-                    'output_path': str(temp_vocal_output),
-                    'pth_path': str(model_file),
-                    'index_path': str(idx_path) if idx_path else '',
-                    'split_audio': defaults.split_audio,
-                    'f0_autotune': f0_autotune,
-                    'f0_autotune_strength': f0_autotune_strength,
-                    'proposed_pitch': defaults.proposed_pitch,
-                    'proposed_pitch_threshold': defaults.proposed_pitch_threshold,
-                    'clean_audio': clean_audio,
-                    'clean_strength': clean_strength,
-                    'export_format': defaults.export_format,
-                    'embedder_model': embedder_model,
-                    'embedder_model_custom': None,
-                    'formant_shifting': defaults.formant_shifting,
-                    'formant_qfrency': defaults.formant_qfrency,
-                    'formant_timbre': defaults.formant_timbre,
-                    'post_process': defaults.post_process,
-                    'reverb': reverb,
-                    'pitch_shift': False,
-                    'limiter': False,
-                    'gain': False,
-                    'distortion': False,
-                    'chorus': False,
-                    'bitcrush': False,
-                    'clipping': False,
-                    'compressor': False,
-                    'delay': False,
-                    'reverb_room_size': reverb_room_size,
-                    'reverb_damping': reverb_damping,
-                    'reverb_wet_gain': reverb_wet_gain,
-                    'reverb_dry_gain': reverb_dry_gain,
-                    'reverb_width': reverb_width,
-                    'reverb_freeze_mode': reverb_freeze_mode,
-                    'pitch_shift_semitones': 0.0,
-                    'limiter_threshold': -6,
-                    'limiter_release_time': 0.01,
-                    'gain_db': 0.0,
-                    'distortion_gain': 25,
-                    'chorus_rate': 1.0,
-                    'chorus_depth': 0.25,
-                    'chorus_center_delay': 7,
-                    'chorus_feedback': 0.0,
-                    'chorus_mix': 0.5,
-                    'bitcrush_bit_depth': 8,
-                    'clipping_threshold': -6,
-                    'compressor_threshold': 0,
-                    'compressor_ratio': 1,
-                    'compressor_attack': 1.0,
-                    'compressor_release': 100,
-                    'delay_seconds': 0.5,
-                    'delay_feedback': 0.0,
-                    'delay_mix': 0.5,
-                    'sid': 0,
-                }
+                # RVC 설정 딕셔너리 생성
+                config = _build_rvc_config(
+                    pitch=pitch,
+                    index_rate=index_rate,
+                    volume_envelope=volume_envelope,
+                    protect=protect,
+                    f0_method=defaults.f0_method,
+                    input_path=str(vocals_path),
+                    output_path=str(temp_vocal_output),
+                    pth_path=str(model_file),
+                    index_path=str(idx_path) if idx_path else '',
+                    split_audio=defaults.split_audio,
+                    f0_autotune=f0_autotune,
+                    f0_autotune_strength=f0_autotune_strength,
+                    proposed_pitch=defaults.proposed_pitch,
+                    proposed_pitch_threshold=defaults.proposed_pitch_threshold,
+                    clean_audio=clean_audio,
+                    clean_strength=clean_strength,
+                    export_format=defaults.export_format,
+                    embedder_model=embedder_model,
+                    formant_shifting=defaults.formant_shifting,
+                    formant_qfrency=defaults.formant_qfrency,
+                    formant_timbre=defaults.formant_timbre,
+                    post_process=defaults.post_process,
+                    reverb=reverb,
+                    reverb_room_size=reverb_room_size,
+                    reverb_damping=reverb_damping,
+                    reverb_wet_gain=reverb_wet_gain,
+                    reverb_dry_gain=reverb_dry_gain,
+                    reverb_width=reverb_width,
+                    reverb_freeze_mode=reverb_freeze_mode,
+                )
                 
-                # 임시 JSON 파일 생성
+                # 임시 JSON 설정 파일 생성
                 with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as f:
                     json.dump(config, f, ensure_ascii=False)
                     config_path = f.name
@@ -912,7 +1038,7 @@ async def run_inference(
         _cleanup_all_memory()
         _log_memory_usage("최종 정리 후")
         
-        # 메모리 증가량 계산 (디버그용)
+        # 메모리 증가량 계산
         try:
             process = psutil.Process()
             final_mem = process.memory_info().rss / (1024**2)  # MB
@@ -924,7 +1050,7 @@ async def run_inference(
                     f"종료: {final_mem:.1f} MB | "
                     f"증가: {mem_increase:+.1f} MB"
                 )
-                if mem_increase > 100:  # 100MB 이상 증가 시 경고
+                if mem_increase > 100:
                     logger.warning(
                         f"[메모리 누수 의심] 추론 작업 후 메모리가 {mem_increase:.1f} MB 증가했습니다. "
                         f"모델이나 오디오 데이터가 제대로 해제되지 않았을 수 있습니다."
@@ -936,7 +1062,7 @@ async def run_inference(
 
 
 # 보컬 분리 작업 동시 실행 제한
-# spleeter는 TensorFlow를 사용하는데, TensorFlow는 스레드 안전하지 않습니다.
+# Spleeter는 TensorFlow를 사용하는데, TensorFlow는 스레드 안전하지 않습니다.
 # 전용 스레드 풀(max_workers=1)을 사용하여 한 번에 하나의 작업만 실행되도록 제한합니다.
 _separation_lock = asyncio.Lock()
 _separation_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="spleeter")
@@ -944,12 +1070,23 @@ _separation_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="spl
 
 async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) -> dict:
     """오디오를 보컬/인스트루멘탈로 분리
-
-    spleeter를 사용하여 입력 오디오를 보컬과 인스트루멘탈로 분리합니다.
+    
+    Spleeter를 사용하여 입력 오디오를 보컬과 인스트루멘탈로 분리합니다.
     별도 프로세스에서 실행되므로 TensorFlow 메모리 누수 없이 자동으로 정리됩니다.
     TensorFlow Graph 충돌 방지를 위해 락을 사용하여 동시 실행을 제한합니다.
     
     이 함수는 추론(inference)과 학습(train) 모두에서 사용됩니다.
+    
+    Args:
+        input_audio_path: 입력 오디오 파일 경로
+        output_dir: 출력 디렉토리 경로
+        
+    Returns:
+        {"vocals": 보컬 파일 경로, "instrumental": 인스트루멘탈 파일 경로}
+        
+    Raises:
+        FileNotFoundError: 입력 파일이 존재하지 않을 때
+        RuntimeError: 보컬 분리 실패 시
     """
     input_path = Path(input_audio_path)
     if not input_path.exists():
@@ -959,8 +1096,8 @@ async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) ->
     output_path.mkdir(parents=True, exist_ok=True)
 
     base_name = input_path.stem
-    vocals_path = output_path / base_name / f"vocals.wav"
-    instrumental_path = output_path / base_name / f"accompaniment.wav"
+    vocals_path = output_path / base_name / "vocals.wav"
+    instrumental_path = output_path / base_name / "accompaniment.wav"
 
     # 락을 사용하여 동시 실행 제한
     # TensorFlow Graph 중첩 오류를 방지하기 위해 한 번에 하나의 보컬 분리 작업만 실행합니다.
@@ -996,7 +1133,7 @@ async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) ->
                     logger.error(error_msg)
                     raise RuntimeError(error_msg)
 
-            # 전용 스레드 풀 사용: max_workers=1로 설정하여 한 번에 하나의 작업만 실행
+            # 전용 스레드 풀 사용 (max_workers=1)
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(_separation_executor, _separate_audio)
             separation_success = True
@@ -1067,9 +1204,7 @@ async def merge_vocal_instrumental(
             if pitch != 0:
                 # librosa의 pitch_shift를 사용하여 피치 조절 (속도는 유지)
                 # pitch는 반음 단위 (12 = 1옥타브)
-                instrumental = librosa.effects.pitch_shift(
-                    instrumental, sr=sr_v, n_steps=pitch
-                )
+                instrumental = librosa.effects.pitch_shift(instrumental, sr=sr_v, n_steps=pitch)
 
             # 길이가 다르면 더 긴 쪽에 맞춰 패딩
             max_len = max(len(vocals), len(instrumental))

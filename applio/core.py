@@ -3,6 +3,7 @@ import sys
 import json
 import argparse
 import subprocess
+import logging
 from functools import lru_cache
 from distutils.util import strtobool
 
@@ -19,6 +20,8 @@ from rvc.lib.tools.analyzer import analyze_audio
 from rvc.lib.tools.model_download import model_download_pipeline
 
 python = sys.executable
+
+logger = logging.getLogger(__name__)
 
 
 # Get TTS Voices -> https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list?trustedclienttoken=6A5AA1D4EAFF4E9FB37E23D68491D6F4
@@ -187,20 +190,13 @@ def run_infer_script(
         )
     finally:
         # 작업 완료 후 VoiceConverter 인스턴스 정리
-        print("[디버그] run_infer_script() finally 블록 시작")
-        
         if infer_pipeline is not None:
             # 모델 cleanup - 메모리 누수 방지를 위해 명시적으로 호출
-            print("[디버그] cleanup_model() 호출 시도")
             try:
                 infer_pipeline.cleanup_model()
-                print("[디버그] cleanup_model() 호출 성공")
             except Exception as e:
+                logger.error(f"모델 정리 중 오류 발생: {e}", exc_info=True)
                 # cleanup 실패해도 계속 진행
-                import traceback
-                print(f"[ERROR] Model cleanup failed: {e}")
-                print(f"[ERROR] 트레이스백:\n{traceback.format_exc()}")
-                # 예외가 발생해도 최대한 정리 시도
                 try:
                     if hasattr(infer_pipeline, 'net_g') and infer_pipeline.net_g is not None:
                         del infer_pipeline.net_g
@@ -217,14 +213,12 @@ def run_infer_script(
             try:
                 del infer_pipeline
                 infer_pipeline = None
-                print("[디버그] infer_pipeline 인스턴스 삭제 완료")
-            except Exception as e:
-                print(f"[디버그] infer_pipeline 삭제 중 오류: {e}")
+            except Exception:
+                pass
         
-        # Python 가비지 컬렉션 강제 실행 (한 번만 - 여러 번 호출해도 효과 없음)
+        # Python 가비지 컬렉션 강제 실행
         import gc
         gc.collect()
-        print("[디버그] 가비지 컬렉션 완료")
         
         # GPU 메모리 정리
         try:
@@ -232,11 +226,8 @@ def run_infer_script(
             if torch.cuda.is_available():
                 for _ in range(3):
                     torch.cuda.empty_cache()
-                print("[디버그] GPU 메모리 정리 완료")
-        except Exception as e:
-            print(f"[디버그] GPU 메모리 정리 중 오류: {e}")
-        
-        print("[디버그] run_infer_script() finally 블록 완료")
+        except Exception:
+            pass
 
 
 # Batch infer
@@ -471,9 +462,12 @@ def run_tts_script(
             try:
                 infer_pipeline.cleanup_model()
             except Exception as e:
-                print(f"Warning: Model cleanup failed: {e}")
-            del infer_pipeline
-            infer_pipeline = None
+                logger.error(f"모델 정리 중 오류 발생: {e}", exc_info=True)
+            try:
+                del infer_pipeline
+                infer_pipeline = None
+            except Exception:
+                pass
         # Python 가비지 컬렉션 강제 실행
         import gc
         gc.collect()

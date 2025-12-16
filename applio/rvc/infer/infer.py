@@ -37,6 +37,8 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("faiss").setLevel(logging.WARNING)
 logging.getLogger("faiss.loader").setLevel(logging.WARNING)
 
+logger = logging.getLogger(__name__)
+
 
 class VoiceConverter:
     """
@@ -89,7 +91,7 @@ class VoiceConverter:
             )
             return reduced_noise
         except Exception as error:
-            print(f"An error occurred removing audio noise: {error}")
+            logger.error(f"오디오 노이즈 제거 중 오류 발생: {error}", exc_info=True)
             return None
 
     @staticmethod
@@ -104,7 +106,6 @@ class VoiceConverter:
         """
         try:
             if output_format != "WAV":
-                print(f"Saving audio as {output_format}...")
                 audio, sample_rate = librosa.load(input_path, sr=None)
                 common_sample_rates = [
                     8000,
@@ -124,7 +125,8 @@ class VoiceConverter:
                 sf.write(output_path, audio, target_sr, format=output_format.lower())
             return output_path
         except Exception as error:
-            print(f"An error occurred converting the audio format: {error}")
+            logger.error(f"오디오 형식 변환 중 오류 발생: {error}", exc_info=True)
+            return None
 
     @staticmethod
     def post_process_audio(
@@ -244,23 +246,13 @@ class VoiceConverter:
             **kwargs: Additional keyword arguments.
         """
         if not model_path:
-            print("No model path provided. Aborting conversion.")
+            logger.error("모델 경로가 제공되지 않았습니다. 변환을 중단합니다.")
             return
 
         self.get_vc(model_path, sid)
-        
-        # 디버그: 모델 로드 후 메모리 상태
-        try:
-            import psutil
-            process = psutil.Process()
-            mem_info = process.memory_info()
-            print(f"[디버그] 모델 로드 후 메모리: {mem_info.rss / (1024**2):.1f} MB")
-        except Exception:
-            pass
 
         try:
             start_time = time.time()
-            print(f"Converting audio '{audio_input_path}'...")
 
             audio = load_audio_infer(
                 audio_input_path,
@@ -290,7 +282,6 @@ class VoiceConverter:
 
             if split_audio:
                 chunks, intervals = process_audio(audio, 16000)
-                print(f"Audio split into {len(chunks)} chunks for processing.")
             else:
                 chunks = []
                 chunks.append(audio)
@@ -316,8 +307,6 @@ class VoiceConverter:
                     proposed_pitch_threshold=proposed_pitch_threshold,
                 )
                 converted_chunks.append(audio_opt)
-                if split_audio:
-                    print(f"Converted audio chunk {len(converted_chunks)}")
 
             if split_audio:
                 audio_opt = merge_audio(
@@ -347,22 +336,14 @@ class VoiceConverter:
             audio_output_path = self.convert_audio_format(
                 audio_output_path, output_path_format, export_format
             )
-
-            elapsed_time = time.time() - start_time
-            print(
-                f"Conversion completed at '{audio_output_path}' in {elapsed_time:.2f} seconds."
-            )
         except Exception as error:
-            print(f"An error occurred during audio conversion: {error}")
-            print(traceback.format_exc())
+            logger.error(f"오디오 변환 중 오류 발생: {error}", exc_info=True)
+            raise
         finally:
             # 작업 완료 후 메모리 정리
-            print("[디버그] convert_audio() finally 블록 시작")
-            
             # 오디오 데이터 해제 (CPU 메모리 해제)
             try:
                 if 'audio' in locals():
-                    # numpy 배열 메모리 명시적 해제
                     if isinstance(audio, np.ndarray):
                         audio = None
                     del audio
@@ -371,7 +352,6 @@ class VoiceConverter:
                         audio_opt = None
                     del audio_opt
                 if 'chunks' in locals():
-                    # chunks 내부의 모든 오디오 데이터 삭제
                     if isinstance(chunks, list):
                         for chunk in chunks:
                             if chunk is not None and isinstance(chunk, np.ndarray):
@@ -379,7 +359,6 @@ class VoiceConverter:
                             del chunk
                     del chunks
                 if 'converted_chunks' in locals():
-                    # converted_chunks 내부의 모든 오디오 데이터 삭제
                     if isinstance(converted_chunks, list):
                         for chunk in converted_chunks:
                             if chunk is not None and isinstance(chunk, np.ndarray):
@@ -390,25 +369,23 @@ class VoiceConverter:
                     if isinstance(cleaned_audio, np.ndarray):
                         cleaned_audio = None
                     del cleaned_audio
-            except Exception as e:
-                print(f"[디버그] 오디오 데이터 해제 중 오류: {e}")
+            except Exception:
+                pass
             
             # GPU 메모리 정리
             try:
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                     torch.cuda.synchronize()
-            except Exception as e:
-                print(f"[디버그] GPU 메모리 정리 중 오류: {e}")
+            except Exception:
+                pass
             
-            # 가비지 컬렉션 (한 번만)
+            # 가비지 컬렉션
             try:
                 import gc
                 gc.collect()
-            except Exception as e:
-                print(f"[디버그] 가비지 컬렉션 중 오류: {e}")
-            
-            print("[디버그] convert_audio() finally 블록 완료")
+            except Exception:
+                pass
 
     def convert_audio_batch(
         self,
@@ -433,7 +410,6 @@ class VoiceConverter:
             ) as pid_file:
                 pid_file.write(str(pid))
             start_time = time.time()
-            print(f"Converting audio batch '{audio_input_paths}'...")
             audio_files = [
                 f
                 for f in os.listdir(audio_input_paths)
@@ -455,7 +431,6 @@ class VoiceConverter:
                     )
                 )
             ]
-            print(f"Detected {len(audio_files)} audio files for inference.")
             for a in audio_files:
                 new_input = os.path.join(audio_input_paths, a)
                 new_output = os.path.splitext(a)[0] + "_output.wav"
@@ -467,12 +442,9 @@ class VoiceConverter:
                     audio_output_path=new_output,
                     **kwargs,
                 )
-            print(f"Conversion completed at '{audio_input_paths}'.")
-            elapsed_time = time.time() - start_time
-            print(f"Batch conversion completed in {elapsed_time:.2f} seconds.")
         except Exception as error:
-            print(f"An error occurred during audio batch conversion: {error}")
-            print(traceback.format_exc())
+            logger.error(f"배치 오디오 변환 중 오류 발생: {error}", exc_info=True)
+            raise
         finally:
             os.remove(os.path.join(now_dir, "assets", "infer_pid.txt"))
 
@@ -513,8 +485,6 @@ class VoiceConverter:
         Cleans up the model and releases resources.
         메모리 조회는 외부에서 하도록 하여 cleanup 과정에서 메모리 증가를 방지합니다.
         """
-        print("[디버그] cleanup_model() 호출 시작")
-        
         try:
             # 1. GPU 메모리 즉시 정리 (모델 삭제 전)
             if torch.cuda.is_available():
@@ -540,7 +510,7 @@ class VoiceConverter:
                     del self.net_g
                     self.net_g = None
                 except Exception as e:
-                    print(f"[디버그] net_g 삭제 중 오류: {e}")
+                    logger.error(f"net_g 모델 삭제 중 오류 발생: {e}", exc_info=True)
                     self.net_g = None
             
             if self.vc is not None:
@@ -564,7 +534,7 @@ class VoiceConverter:
                     del self.vc
                     self.vc = None
                 except Exception as e:
-                    print(f"[디버그] vc 삭제 중 오류: {e}")
+                    logger.error(f"vc 파이프라인 삭제 중 오류 발생: {e}", exc_info=True)
                     self.vc = None
             
             if self.hubert_model is not None:
@@ -584,7 +554,7 @@ class VoiceConverter:
                     del self.hubert_model
                     self.hubert_model = None
                 except Exception as e:
-                    print(f"[디버그] hubert_model 삭제 중 오류: {e}")
+                    logger.error(f"hubert_model 삭제 중 오류 발생: {e}", exc_info=True)
                     self.hubert_model = None
             
             # 3. 체크포인트 삭제
@@ -623,12 +593,8 @@ class VoiceConverter:
             for _ in range(3):
                 gc.collect()
             
-            print("[디버그] cleanup_model() 완료")
-            
         except Exception as e:
-            import traceback
-            print(f"[ERROR] cleanup_model() 중 예외 발생: {e}")
-            print(f"[ERROR] 트레이스백:\n{traceback.format_exc()}")
+            logger.error(f"모델 정리 중 오류 발생: {e}", exc_info=True)
             # 예외가 발생해도 최대한 정리 시도
             try:
                 if self.net_g is not None:

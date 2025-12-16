@@ -36,8 +36,15 @@ finally:
     os.chdir(original_cwd)
 
 
-def run_inference_from_config(config_path: str):
-    """JSON 설정 파일을 읽어서 RVC inference 실행"""
+def run_inference_from_config(config_path: str) -> int:
+    """JSON 설정 파일을 읽어서 RVC inference 실행
+    
+    Args:
+        config_path: JSON 설정 파일 경로
+        
+    Returns:
+        종료 코드 (0: 성공, 1: 실패)
+    """
     try:
         # 설정 파일 읽기
         with open(config_path, 'r', encoding='utf-8') as f:

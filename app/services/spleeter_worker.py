@@ -10,8 +10,16 @@ sys.path.insert(0, str(project_root))
 from spleeter.separator import Separator
 
 
-def separate_audio(input_path: str, output_dir: str):
-    """별도 프로세스에서 오디오 분리 실행"""
+def separate_audio(input_path: str, output_dir: str) -> int:
+    """별도 프로세스에서 오디오 분리 실행
+    
+    Args:
+        input_path: 입력 오디오 파일 경로
+        output_dir: 출력 디렉토리 경로
+        
+    Returns:
+        종료 코드 (0: 성공, 1: 실패)
+    """
     try:
         separator = Separator("spleeter:2stems")
         separator.separate_to_file(input_path, output_dir)

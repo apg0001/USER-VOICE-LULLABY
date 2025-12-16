@@ -1,25 +1,3 @@
-# FROM python:3.10-slim
-
-# RUN apt-get update && apt-get install -y \
-#     gcc \
-#     g++ \
-#     build-essential \
-#     ffmpeg \
-#     libsndfile1 \
-#     && rm -rf /var/lib/apt/lists/*
-
-# WORKDIR /app
-
-# # COPY requirements.txt .
-# COPY app/requirements.txt /app_requirements.txt
-# COPY applio/requirements.txt /applio_requirements.txt
-# RUN pip install --no-cache-dir -r /app_requirements.txt
-# RUN pip install --no-cache-dir -r /applio_requirements.txt
-# RUN pip uninstall -y torch torchaudio torchvision
-# RUN pip install --no-cache-dir torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cu118
-# COPY . .
-# CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-
 FROM nvidia/cuda:11.8.0-devel-ubuntu22.04
 
 # Ubuntu 패키지 (ffmpeg, libsndfile 등 동일)
