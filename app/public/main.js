@@ -31,6 +31,7 @@ const formatDate = (dateString) => {
 
 // 모델 리스트 로드 및 드롭다운 업데이트
 let modelsCache = [];
+let outputsCache = [];
 
 const loadModels = async () => {
   try {
@@ -81,8 +82,10 @@ document.getElementById("model-select").addEventListener("change", (e) => {
   if (!model) return;
 
   // 첫 번째 모델 파일 자동 선택 (전체 경로 구성: logs/{model_id}/{filename})
-  if (model.model_files.length > 0) {
-    const modelFileName = model.model_files[0];
+  // G_와 D_로 시작하는 파일은 제외
+  const validModelFiles = model.model_files.filter(f => !f.startsWith("G_") && !f.startsWith("D_"));
+  if (validModelFiles.length > 0) {
+    const modelFileName = validModelFiles[0];
     modelPathInput.value = `logs/${modelId}/${modelFileName}`;
   }
 
@@ -172,7 +175,22 @@ document.getElementById("index-select").addEventListener("change", (e) => {
   indexPathInput.value = indexPath;
 });
 
-// 모델 리스트를 테이블로 표시
+// 페이지네이션 상태 관리
+let modelsPaginationState = {
+  currentPage: 1,
+  itemsPerPage: 10,
+  totalItems: 0,
+  totalPages: 0
+};
+
+let outputsPaginationState = {
+  currentPage: 1,
+  itemsPerPage: 10,
+  totalItems: 0,
+  totalPages: 0
+};
+
+// 모델 리스트를 테이블로 표시 (페이지네이션 지원)
 const renderModelsTable = (models) => {
   const container = document.getElementById("models-list-container");
 
@@ -181,17 +199,43 @@ const renderModelsTable = (models) => {
     return;
   }
 
+  // 페이지네이션 계산
+  modelsPaginationState.totalItems = models.length;
+  modelsPaginationState.totalPages = Math.ceil(models.length / modelsPaginationState.itemsPerPage);
+  if (modelsPaginationState.currentPage > modelsPaginationState.totalPages) {
+    modelsPaginationState.currentPage = Math.max(1, modelsPaginationState.totalPages);
+  }
+
+  // 현재 페이지에 표시할 항목들
+  const startIndex = (modelsPaginationState.currentPage - 1) * modelsPaginationState.itemsPerPage;
+  const endIndex = startIndex + modelsPaginationState.itemsPerPage;
+  const paginatedModels = models.slice(startIndex, endIndex);
+
+  // let html = `
+  //   <table class="data-table">
+  //     <thead>
+  //       <tr>
+  //         <th>모델 ID</th>
+  //         <th>모델 이름</th>
+  //         <th>설명</th>
+  //         <th>임베더</th>
+  //         <th>샘플레이트</th>
+  //         <th>Epoch</th>
+  //         <th>보코더</th>
+  //         <th>모델 파일 (절대 경로)</th>
+  //         <th>인덱스 파일 (절대 경로)</th>
+  //         <th>생성 시간</th>
+  //         <th>작업</th>
+  //       </tr>
+  //     </thead>
+  //     <tbody>
+  // `;
   let html = `
     <table class="data-table">
       <thead>
         <tr>
           <th>모델 ID</th>
-          <th>모델 이름</th>
           <th>설명</th>
-          <th>임베더</th>
-          <th>샘플레이트</th>
-          <th>Epoch</th>
-          <th>보코더</th>
           <th>모델 파일 (절대 경로)</th>
           <th>인덱스 파일 (절대 경로)</th>
           <th>생성 시간</th>
@@ -201,19 +245,28 @@ const renderModelsTable = (models) => {
       <tbody>
   `;
 
-  models.forEach((model) => {
+  paginatedModels.forEach((model) => {
     const modelId = encodeURIComponent(model.model_id);
-    const modelName = model.model_name || "-";
-    const embedder = model.embedder_model || "-";
-    const sampleRate = model.sample_rate ? `${model.sample_rate}Hz` : "-";
-    const totalEpoch = model.total_epoch || "-";
-    const vocoder = model.vocoder || "-";
+    // 주석 처리된 필드들 (나중에 쉽게 복구 가능)
+    // const modelName = model.model_name || "-";
+    // const embedder = model.embedder_model || "-";
+    // const sampleRate = model.sample_rate ? `${model.sample_rate}Hz` : "-";
+    // const totalEpoch = model.total_epoch || "-";
+    // const vocoder = model.vocoder || "-";
 
     // 절대 경로 표시 (여러 개일 경우 줄바꿈으로 표시)
+    // G_와 D_로 시작하는 파일 제외
+    const filteredModelFiles = model.model_files.filter(f => !f.startsWith("G_") && !f.startsWith("D_"));
+    const filteredModelFilesAbsolute = (model.model_files_absolute || [])
+      .filter(path => {
+        const fileName = path.split(/[/\\]/).pop();
+        return !fileName.startsWith("G_") && !fileName.startsWith("D_");
+      });
+    
     const modelFilesAbsolute =
-      model.model_files_absolute && model.model_files_absolute.length > 0
-        ? model.model_files_absolute.join("<br>")
-        : model.model_files.map((f) => f.split("/").pop()).join("<br>") || "-";
+      filteredModelFilesAbsolute.length > 0
+        ? filteredModelFilesAbsolute.join("<br>")
+        : filteredModelFiles.map((f) => f.split("/").pop()).join("<br>") || "-";
     const indexFilesAbsolute =
       model.index_files_absolute && model.index_files_absolute.length > 0
         ? model.index_files_absolute.join("<br>")
@@ -221,15 +274,32 @@ const renderModelsTable = (models) => {
 
     const modelDescription = model.model_description || "-";
 
+    // html += `
+    //   <tr>
+    //     <td><strong>${model.model_id}</strong></td>
+    //     <!-- 주석 처리된 필드들 (나중에 쉽게 복구 가능) -->
+    //     <td>${modelName}</td>
+    //     <td style="max-width: 200px; word-break: break-word; white-space: pre-wrap;">${modelDescription}</td>
+    //     <td>${embedder}</td>
+    //     <td>${sampleRate}</td>
+    //     <td>${totalEpoch}</td>
+    //     <td>${vocoder}</td>
+    //     <td style="font-size: 0.85rem; max-width: 300px; word-break: break-all;">${modelFilesAbsolute}</td>
+    //     <td style="font-size: 0.85rem; max-width: 300px; word-break: break-all;">${indexFilesAbsolute}</td>
+    //     <td>${formatDate(model.created_at)}</td>
+    //     <td>
+    //       <div class="file-actions">
+    //         <button onclick="deleteModel('${modelId}', '${
+    //   model.model_id
+    // }')" style="background: #ef4444;">삭제</button>
+    //       </div>
+    //     </td>
+    //   </tr>
+    // `;
     html += `
       <tr>
         <td><strong>${model.model_id}</strong></td>
-        <td>${modelName}</td>
         <td style="max-width: 200px; word-break: break-word; white-space: pre-wrap;">${modelDescription}</td>
-        <td>${embedder}</td>
-        <td>${sampleRate}</td>
-        <td>${totalEpoch}</td>
-        <td>${vocoder}</td>
         <td style="font-size: 0.85rem; max-width: 300px; word-break: break-all;">${modelFilesAbsolute}</td>
         <td style="font-size: 0.85rem; max-width: 300px; word-break: break-all;">${indexFilesAbsolute}</td>
         <td>${formatDate(model.created_at)}</td>
@@ -249,10 +319,56 @@ const renderModelsTable = (models) => {
     </table>
   `;
 
+  // 페이지네이션 컨트롤 추가
+  html += `
+    <div class="pagination-controls" style="margin-top: 1rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <label style="margin: 0;">한 페이지에 표시할 개수:</label>
+        <select id="models-items-per-page" style="padding: 0.25rem 0.5rem;">
+          <option value="5" ${modelsPaginationState.itemsPerPage === 5 ? 'selected' : ''}>5</option>
+          <option value="10" ${modelsPaginationState.itemsPerPage === 10 ? 'selected' : ''}>10</option>
+          <option value="20" ${modelsPaginationState.itemsPerPage === 20 ? 'selected' : ''}>20</option>
+          <option value="50" ${modelsPaginationState.itemsPerPage === 50 ? 'selected' : ''}>50</option>
+          <option value="100" ${modelsPaginationState.itemsPerPage === 100 ? 'selected' : ''}>100</option>
+        </select>
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <button onclick="modelsPaginationPrev()" ${modelsPaginationState.currentPage === 1 ? 'disabled' : ''} style="padding: 0.25rem 0.5rem;">이전</button>
+        <span>페이지 ${modelsPaginationState.currentPage} / ${modelsPaginationState.totalPages} (총 ${modelsPaginationState.totalItems}개)</span>
+        <button onclick="modelsPaginationNext()" ${modelsPaginationState.currentPage >= modelsPaginationState.totalPages ? 'disabled' : ''} style="padding: 0.25rem 0.5rem;">다음</button>
+      </div>
+    </div>
+  `;
+
   container.innerHTML = html;
+
+  // 페이지네이션 이벤트 리스너
+  const itemsPerPageSelect = document.getElementById("models-items-per-page");
+  if (itemsPerPageSelect) {
+    itemsPerPageSelect.addEventListener("change", (e) => {
+      modelsPaginationState.itemsPerPage = parseInt(e.target.value);
+      modelsPaginationState.currentPage = 1;
+      renderModelsTable(modelsCache);
+    });
+  }
 };
 
-// 추론 결과 리스트를 테이블로 표시
+// 모델 리스트 페이지네이션 함수
+window.modelsPaginationPrev = () => {
+  if (modelsPaginationState.currentPage > 1) {
+    modelsPaginationState.currentPage--;
+    renderModelsTable(modelsCache);
+  }
+};
+
+window.modelsPaginationNext = () => {
+  if (modelsPaginationState.currentPage < modelsPaginationState.totalPages) {
+    modelsPaginationState.currentPage++;
+    renderModelsTable(modelsCache);
+  }
+};
+
+// 추론 결과 리스트를 테이블로 표시 (페이지네이션 지원)
 const renderOutputsTable = (outputs) => {
   const container = document.getElementById("outputs-list-container");
 
@@ -260,6 +376,18 @@ const renderOutputsTable = (outputs) => {
     container.innerHTML = '<div class="empty-state">추론 결과가 없습니다</div>';
     return;
   }
+
+  // 페이지네이션 계산
+  outputsPaginationState.totalItems = outputs.length;
+  outputsPaginationState.totalPages = Math.ceil(outputs.length / outputsPaginationState.itemsPerPage);
+  if (outputsPaginationState.currentPage > outputsPaginationState.totalPages) {
+    outputsPaginationState.currentPage = Math.max(1, outputsPaginationState.totalPages);
+  }
+
+  // 현재 페이지에 표시할 항목들
+  const startIndex = (outputsPaginationState.currentPage - 1) * outputsPaginationState.itemsPerPage;
+  const endIndex = startIndex + outputsPaginationState.itemsPerPage;
+  const paginatedOutputs = outputs.slice(startIndex, endIndex);
 
   let html = `
     <table class="data-table">
@@ -274,14 +402,15 @@ const renderOutputsTable = (outputs) => {
       <tbody>
   `;
 
-  outputs.forEach((output) => {
+  paginatedOutputs.forEach((output) => {
     const fileName = output.output_id;
     const fileSize = formatBytes(output.file_size);
     const createdAt = formatDate(output.created_at);
     const outputId = encodeURIComponent(output.output_id);
+    const rowId = `output-row-${outputId.replace(/[^a-zA-Z0-9]/g, '_')}`;
 
     html += `
-      <tr>
+      <tr id="${rowId}">
         <td>
           <span class="file-link" data-output-id="${outputId}" data-file-name="${fileName}">
             ${fileName}
@@ -292,9 +421,17 @@ const renderOutputsTable = (outputs) => {
         <td>
           <div class="file-actions">
             <button onclick="downloadOutput('${outputId}', '${fileName}')">다운로드</button>
-            <button onclick="playOutput('${outputId}', '${fileName}')">재생</button>
+            <button onclick="playOutput('${outputId}', '${fileName}', '${rowId}')">재생</button>
             <button onclick="deleteOutput('${outputId}', '${fileName}')" style="background: #ef4444;">삭제</button>
           </div>
+        </td>
+      </tr>
+      <tr id="${rowId}-player-row" class="audio-player-row hidden">
+        <td colspan="4" style="padding: 0.5rem 0.75rem; background: #1a1f2e;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+            <span style="font-size: 0.85rem; color: #a0aec0; font-weight: 500;">재생 중: ${fileName}</span>
+          </div>
+          <audio id="audio-player-${outputId.replace(/[^a-zA-Z0-9]/g, '_')}" class="audio-player" controls style="width: 100%;"></audio>
         </td>
       </tr>
     `;
@@ -303,8 +440,26 @@ const renderOutputsTable = (outputs) => {
   html += `
       </tbody>
     </table>
-    <div id="audio-player-container" class="hidden" style="margin-top: 1rem;">
-      <audio id="audio-player" class="audio-player" controls></audio>
+  `;
+
+  // 페이지네이션 컨트롤 추가
+  html += `
+    <div class="pagination-controls" style="margin-top: 1rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <label style="margin: 0;">한 페이지에 표시할 개수:</label>
+        <select id="outputs-items-per-page" style="padding: 0.25rem 0.5rem;">
+          <option value="5" ${outputsPaginationState.itemsPerPage === 5 ? 'selected' : ''}>5</option>
+          <option value="10" ${outputsPaginationState.itemsPerPage === 10 ? 'selected' : ''}>10</option>
+          <option value="20" ${outputsPaginationState.itemsPerPage === 20 ? 'selected' : ''}>20</option>
+          <option value="50" ${outputsPaginationState.itemsPerPage === 50 ? 'selected' : ''}>50</option>
+          <option value="100" ${outputsPaginationState.itemsPerPage === 100 ? 'selected' : ''}>100</option>
+        </select>
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <button onclick="outputsPaginationPrev()" ${outputsPaginationState.currentPage === 1 ? 'disabled' : ''} style="padding: 0.25rem 0.5rem;">이전</button>
+        <span>페이지 ${outputsPaginationState.currentPage} / ${outputsPaginationState.totalPages} (총 ${outputsPaginationState.totalItems}개)</span>
+        <button onclick="outputsPaginationNext()" ${outputsPaginationState.currentPage >= outputsPaginationState.totalPages ? 'disabled' : ''} style="padding: 0.25rem 0.5rem;">다음</button>
+      </div>
     </div>
   `;
 
@@ -318,6 +473,31 @@ const renderOutputsTable = (outputs) => {
       downloadOutput(outputId, fileName);
     });
   });
+
+  // 페이지네이션 이벤트 리스너
+  const itemsPerPageSelect = document.getElementById("outputs-items-per-page");
+  if (itemsPerPageSelect) {
+    itemsPerPageSelect.addEventListener("change", (e) => {
+      outputsPaginationState.itemsPerPage = parseInt(e.target.value);
+      outputsPaginationState.currentPage = 1;
+      renderOutputsTable(outputsCache);
+    });
+  }
+};
+
+// 추론 결과 리스트 페이지네이션 함수
+window.outputsPaginationPrev = () => {
+  if (outputsPaginationState.currentPage > 1) {
+    outputsPaginationState.currentPage--;
+    renderOutputsTable(outputsCache);
+  }
+};
+
+window.outputsPaginationNext = () => {
+  if (outputsPaginationState.currentPage < outputsPaginationState.totalPages) {
+    outputsPaginationState.currentPage++;
+    renderOutputsTable(outputsCache);
+  }
 };
 
 // 파일 다운로드 함수
@@ -332,14 +512,27 @@ window.downloadOutput = (outputId, fileName) => {
 };
 
 // 파일 재생 함수
-window.playOutput = (outputId, fileName) => {
-  const container = document.getElementById("audio-player-container");
-  const player = document.getElementById("audio-player");
+window.playOutput = (outputId, fileName, rowId) => {
+  // 모든 재생 바 숨기기
+  document.querySelectorAll('.audio-player-row').forEach(row => {
+    row.classList.add('hidden');
+  });
+  
+  // 모든 오디오 플레이어 일시정지
+  document.querySelectorAll('.audio-player').forEach(player => {
+    player.pause();
+    player.currentTime = 0;
+  });
 
-  if (container && player) {
+  // 해당 행의 재생 바 표시
+  const playerRow = document.getElementById(`${rowId}-player-row`);
+  const playerId = `audio-player-${outputId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+  const player = document.getElementById(playerId);
+
+  if (playerRow && player) {
     const url = `/outputs/${outputId}/download`;
     player.src = url;
-    container.classList.remove("hidden");
+    playerRow.classList.remove("hidden");
     player.play().catch((err) => {
       console.error("재생 실패:", err);
       alert("오디오 재생에 실패했습니다.");
@@ -440,6 +633,8 @@ const refreshOutputs = async () => {
     const response = await fetch("/outputs");
     if (!response.ok) throw new Error("추론 결과 조회 실패");
     const outputs = await response.json();
+    outputsCache = outputs;
+    outputsPaginationState.currentPage = 1; // 새로고침 시 첫 페이지로
     renderOutputsTable(outputs);
   } catch (error) {
     alert(`추론 결과 조회 실패: ${error.message || error}`);

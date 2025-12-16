@@ -212,6 +212,12 @@ button:disabled {
   margin-top: 0.5rem;
   width: 100%;
 }
+.audio-player-row {
+  border-top: 2px solid #2c3547;
+}
+.audio-player-row.hidden {
+  display: none;
+}
 .hidden {
   display: none;
 }

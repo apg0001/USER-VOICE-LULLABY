@@ -58,7 +58,7 @@ __all__ = ["run_inference", "train_model"]
 # ============================================================================
 
 def _log_memory_usage(stage: str, process=None) -> None:
-    """메모리 사용량 로깅
+    """메모리 사용량 로깅 (DEBUG 레벨)
     
     Args:
         stage: 메모리 측정 단계 이름
@@ -80,7 +80,7 @@ def _log_memory_usage(stage: str, process=None) -> None:
         except Exception:
             pass
         
-        logger.info(
+        logger.debug(
             f"[메모리 추적] {stage} | "
             f"RSS: {mem_info.rss / (1024**2):.1f} MB | "
             f"VMS: {mem_info.vms / (1024**2):.1f} MB | "
@@ -348,7 +348,8 @@ def _update_model_info_files(model_dir: Path) -> None:
         with open(model_info_path, "r", encoding="utf-8") as f:
             model_info_json = json.load(f)
 
-        pth_files = list(model_dir.glob("*.pth"))
+        # G_와 D_로 시작하는 파일 제외 (추론에 사용하지 않음)
+        pth_files = [f for f in model_dir.glob("*.pth") if not (f.name.startswith("G_") or f.name.startswith("D_"))]
         index_files = list(model_dir.glob("*.index"))
 
         pth_files_absolute = sorted([str(f.resolve()) for f in pth_files])
@@ -690,6 +691,31 @@ async def train_model(
     except Exception as e:
         logger.warning(f"전처리 산출물 삭제 중 오류 발생 (무시): {model_dir} - {e}")
 
+    # 메모리 추적: 최종 정리 후
+    _log_memory_usage("최종 정리 후")
+    
+    # 메모리 증가량 계산
+    try:
+        process = psutil.Process()
+        final_mem = process.memory_info().rss / (1024**2)  # MB
+        if initial_mem is not None:
+            mem_increase = final_mem - initial_mem
+            logger.debug(
+                f"[메모리 추적] 학습 작업 완료 | "
+                f"시작: {initial_mem:.1f} MB | "
+                f"종료: {final_mem:.1f} MB | "
+                f"증가: {mem_increase:+.1f} MB"
+            )
+            if mem_increase > 100:
+                logger.warning(
+                    f"[메모리 누수 의심] 학습 작업 후 메모리가 {mem_increase:.1f} MB 증가했습니다. "
+                    f"모델이나 데이터가 제대로 해제되지 않았을 수 있습니다."
+                )
+        else:
+            logger.debug(f"[메모리 추적] 학습 작업 완료 후 최종 메모리: {final_mem:.1f} MB")
+    except Exception:
+        pass
+
     return {
         "model_name": model_name,
         "logs_dir": str(model_dir.resolve()),
@@ -768,6 +794,15 @@ async def run_inference(
 
     unique_id = uuid4().hex
 
+    # 메모리 추적: 추론 시작 전
+    initial_mem = None
+    try:
+        process = psutil.Process()
+        initial_mem = process.memory_info().rss / (1024**2)  # MB
+    except Exception:
+        pass
+    _log_memory_usage("추론 시작 전")
+
     # finally 블록에서 정리하기 위한 변수
     vocals_path = None
     instrumental_path = None
@@ -793,6 +828,7 @@ async def run_inference(
             if separation_result is not None:
                 del separation_result
             # 별도 프로세스에서 실행했으므로 메모리 정리 불필요 (프로세스 종료 시 자동 해제)
+            _log_memory_usage("보컬 분리 후")
 
         # 2단계: 보컬만 inference 실행
         # 분리된 보컬에만 음성 변환을 적용합니다.
@@ -803,6 +839,7 @@ async def run_inference(
         vocal_exported = None
 
         try:
+            _log_memory_usage("Inference 실행 전")
             # prerequisites: 의존성 확인 및 초기화
             await _run_blocking(run_prerequisites_script, True, True, True)
 
@@ -916,12 +953,13 @@ async def run_inference(
                         pass
             
             vocal_message, vocal_exported = await _run_blocking(_run_rvc_in_process)
+            _log_memory_usage("Inference 스크립트 완료 직후")
         except Exception as e:
             logger.error(f"보컬 inference 실행 중 오류 발생: {e}", exc_info=True)
             raise RuntimeError(f"보컬 inference 실패: {str(e)}")
         finally:
             # 별도 프로세스에서 실행했으므로 메모리 정리 불필요 (프로세스 종료 시 자동 해제)
-            pass
+            _log_memory_usage("Inference 실행 후 (프로세스 종료)")
 
         # 출력 파일 검증: TensorFlow 오류로 인해 파일이 생성되지 않았거나 비어있을 수 있음
         vocal_exported_path = Path(vocal_exported)
@@ -944,6 +982,7 @@ async def run_inference(
         # 3단계: 변환된 보컬과 원본 인스트루멘탈 합성
         # 변환된 보컬과 원본 인스트루멘탈을 믹싱하여 최종 출력을 생성합니다.
         logger.debug("오디오 합성 시작")
+        _log_memory_usage("오디오 합성 전")
         final_output = output_folder / f"{unique_id}_final.wav"
         final_output_path = None
 
@@ -951,6 +990,7 @@ async def run_inference(
             final_output_path = await merge_vocal_instrumental(
                 str(vocal_exported), str(instrumental_path), str(final_output), pitch
             )
+            _log_memory_usage("오디오 합성 후")
         except Exception as e:
             logger.error(f"오디오 합성 중 오류 발생: {e}", exc_info=True)
             raise RuntimeError(f"오디오 합성 실패: {str(e)}")
@@ -1035,6 +1075,29 @@ async def run_inference(
         
         # 최종 메모리 정리
         _cleanup_all_memory()
+        _log_memory_usage("최종 정리 후")
+        
+        # 메모리 증가량 계산
+        try:
+            process = psutil.Process()
+            final_mem = process.memory_info().rss / (1024**2)  # MB
+            if initial_mem is not None:
+                mem_increase = final_mem - initial_mem
+                logger.debug(
+                    f"[메모리 추적] 추론 작업 완료 | "
+                    f"시작: {initial_mem:.1f} MB | "
+                    f"종료: {final_mem:.1f} MB | "
+                    f"증가: {mem_increase:+.1f} MB"
+                )
+                if mem_increase > 100:
+                    logger.warning(
+                        f"[메모리 누수 의심] 추론 작업 후 메모리가 {mem_increase:.1f} MB 증가했습니다. "
+                        f"모델이나 오디오 데이터가 제대로 해제되지 않았을 수 있습니다."
+                    )
+            else:
+                logger.debug(f"[메모리 추적] 추론 작업 완료 후 최종 메모리: {final_mem:.1f} MB")
+        except Exception:
+            pass
 
 
 # 보컬 분리 작업 동시 실행 제한

@@ -47,7 +47,7 @@ async def start_inference(
     file_repo: FileRepository = Depends(get_file_repository),
 ):
     """파일 업로드로 추론 시작 요청 처리"""
-    logger.info(f"추론 요청 수신 | model_path={model_path} | index_path={index_path}")
+    logger.debug(f"추론 요청 수신 | model_path={model_path} | index_path={index_path}")
 
     # 입력 검증
     if not target_audio:
@@ -127,9 +127,9 @@ async def start_inference(
 
     try:
         # 파일 저장
-        logger.info(f"추론 오디오 파일 저장 시작 | model_path={model_path}")
+        logger.debug(f"추론 오디오 파일 저장 시작 | model_path={model_path}")
         temp_audio_path = file_repo.save_inference_audio(target_audio)
-        logger.info(f"추론 오디오 파일 저장 완료 | temp_audio_path={temp_audio_path}")
+        logger.debug(f"추론 오디오 파일 저장 완료 | temp_audio_path={temp_audio_path}")
 
         # 비동기 작업 등록 (모든 요청을 큐에 추가, 리소스 확인은 워커에서 수행)
         request = InferenceFilesRequest(
