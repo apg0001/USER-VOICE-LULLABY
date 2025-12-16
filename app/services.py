@@ -1,39 +1,41 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import os
 import shutil
+import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
 import librosa
 import numpy as np
+import psutil
 import soundfile as sf
-from spleeter.separator import Separator
 
-from .logging_config import PROJECT_ROOT, get_logger
+from app.constants import RVC_LOGS_DIR, RVC_ROOT, DEFAULT_OUTPUT_DIR
+from app.logging_config import PROJECT_ROOT, get_logger
 
-RVC_ROOT = PROJECT_ROOT / "applio"
 INNER_RVC = RVC_ROOT / "rvc"
 
-# RVC 루트가 존재하지 않으면 오류 발생
 if not RVC_ROOT.exists():
     raise RuntimeError(f"rvc 디렉터리를 찾을 수 없습니다: {RVC_ROOT}")
 
-# 현재 작업 디렉토리 저장 후 RVC 루트로 변경하여
-# RVC 관련 모듈 임포트 전 환경 설정
+# RVC 모듈 임포트 전 환경 설정
+# RVC 스크립트는 특정 작업 디렉토리에서 실행되어야 하며,
+# sys.path에 RVC 내부 경로가 포함되어야 정상적으로 임포트됩니다.
 _ORIGINAL_CWD = Path.cwd()
 try:
     if _ORIGINAL_CWD != RVC_ROOT:
-        os.chdir(RVC_ROOT)  # 작업디렉토리 이동
-    # RVC 내부 모듈 경로를 sys.path에 추가하여 임포트 가능하게 설정
+        os.chdir(RVC_ROOT)
+    # RVC 내부 모듈 경로를 sys.path에 추가하여 core 모듈 임포트 가능하게 설정
     for path in (INNER_RVC, RVC_ROOT):
         path_str = str(path)
         if path.exists() and path_str not in sys.path:
             sys.path.insert(0, path_str)
-    # RVC 핵심 스크립트 임포트
     from core import (
         run_extract_script,
         run_infer_script,
@@ -42,55 +44,355 @@ try:
         run_prerequisites_script,
     )
 finally:
-    os.chdir(_ORIGINAL_CWD)  # 작업 디렉토리 원복
+    os.chdir(_ORIGINAL_CWD)
 
-# 설정값 임포트
-from .settings import INFERENCE_DEFAULTS, TRAINING_DEFAULTS
+from app.settings import INFERENCE_DEFAULTS, TRAINING_DEFAULTS
 
 logger = get_logger(__name__)
 
-RVC_LOGS_DIR = RVC_ROOT / "logs"  # 모델 저장 폴더
-DEFAULT_OUTPUT_DIR = RVC_ROOT / "outputs"  # 출력 파일 기본 경로
+__all__ = ["run_inference", "train_model"]
 
 
-# 디렉토리가 없으면 생성해주는 헬퍼함수
+# ============================================================================
+# 메모리 관리 유틸리티 함수들
+# ============================================================================
+
+def _log_memory_usage(stage: str, process=None) -> None:
+    """메모리 사용량 로깅
+    
+    Args:
+        stage: 메모리 측정 단계 이름
+        process: psutil.Process 인스턴스 (None이면 현재 프로세스 사용)
+    """
+    try:
+        if process is None:
+            process = psutil.Process()
+        
+        mem_info = process.memory_info()
+        mem_percent = process.memory_percent()
+        
+        # GPU 메모리 (가능한 경우)
+        gpu_mem = None
+        try:
+            import torch
+            if torch.cuda.is_available():
+                gpu_mem = torch.cuda.memory_allocated() / (1024**3)  # GB
+        except Exception:
+            pass
+        
+        logger.info(
+            f"[메모리 추적] {stage} | "
+            f"RSS: {mem_info.rss / (1024**2):.1f} MB | "
+            f"VMS: {mem_info.vms / (1024**2):.1f} MB | "
+            f"프로세스 메모리: {mem_percent:.1f}%"
+            + (f" | GPU: {gpu_mem:.2f} GB" if gpu_mem is not None else "")
+        )
+    except Exception as e:
+        logger.debug(f"메모리 추적 실패 ({stage}): {e}")
+
+
+def _cleanup_gpu_memory() -> None:
+    """GPU 메모리 정리"""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+    except Exception:
+        pass
+
+
+def _cleanup_tensorflow_memory() -> None:
+    """TensorFlow 메모리 정리"""
+    try:
+        import tensorflow as tf
+        # Keras 세션 정리
+        tf.keras.backend.clear_session()
+        # TensorFlow 1.x 그래프 리셋 시도
+        try:
+            if hasattr(tf, 'compat') and hasattr(tf.compat.v1, 'reset_default_graph'):
+                tf.compat.v1.reset_default_graph()
+        except (AttributeError, RuntimeError, IndexError):
+            pass
+    except Exception:
+        pass
+
+
+def _cleanup_audio_data(**locals_dict) -> None:
+    """오디오 데이터 메모리 해제
+    
+    Args:
+        **locals_dict: 오디오 데이터 변수들 (vocals, instrumental, mixed 등)
+    """
+    audio_keys = ['audio', 'audio_opt', 'chunks', 'converted_chunks', 'cleaned_audio', 
+                  'vocals', 'instrumental', 'mixed']
+    for key in audio_keys:
+        if key in locals_dict:
+            obj = locals_dict[key]
+            try:
+                if isinstance(obj, np.ndarray):
+                    obj = None
+                elif isinstance(obj, list):
+                    for item in obj:
+                        if isinstance(item, np.ndarray):
+                            item = None
+                        del item
+                del obj
+            except Exception:
+                pass
+
+
+def _force_garbage_collection() -> None:
+    """가비지 컬렉션 강제 실행"""
+    gc.collect()
+
+
+def _cleanup_all_memory() -> None:
+    """모든 메모리 정리 (GPU, TensorFlow, 가비지 컬렉션)"""
+    _cleanup_gpu_memory()
+    _cleanup_tensorflow_memory()
+    _force_garbage_collection()
+
+
+def _build_rvc_config(
+    pitch: int,
+    index_rate: float,
+    volume_envelope: float,
+    protect: float,
+    f0_method: str,
+    input_path: str,
+    output_path: str,
+    pth_path: str,
+    index_path: str,
+    split_audio: bool,
+    f0_autotune: bool,
+    f0_autotune_strength: float,
+    proposed_pitch: bool,
+    proposed_pitch_threshold: float,
+    clean_audio: bool,
+    clean_strength: float,
+    export_format: str,
+    embedder_model: str,
+    formant_shifting: bool = False,
+    formant_qfrency: float = 1.0,
+    formant_timbre: float = 1.0,
+    post_process: bool = False,
+    reverb: bool = False,
+    reverb_room_size: float = 0.5,
+    reverb_damping: float = 0.5,
+    reverb_wet_gain: float = 0.5,
+    reverb_dry_gain: float = 0.5,
+    reverb_width: float = 0.5,
+    reverb_freeze_mode: float = 0.5,
+) -> dict:
+    """RVC inference 설정 딕셔너리 생성
+    
+    Args:
+        pitch: 피치 조절 값
+        index_rate: 인덱스 비율
+        volume_envelope: 볼륨 엔벨로프
+        protect: 보호 비율
+        f0_method: F0 추출 방법
+        input_path: 입력 파일 경로
+        output_path: 출력 파일 경로
+        pth_path: 모델 파일 경로
+        index_path: 인덱스 파일 경로
+        split_audio: 오디오 분할 여부
+        f0_autotune: F0 오토튠 사용 여부
+        f0_autotune_strength: F0 오토튠 강도
+        proposed_pitch: 제안 피치 사용 여부
+        proposed_pitch_threshold: 제안 피치 임계값
+        clean_audio: 오디오 정리 여부
+        clean_strength: 정리 강도
+        export_format: 내보내기 형식
+        embedder_model: 임베더 모델
+        formant_shifting: 포먼트 시프팅 여부
+        formant_qfrency: 포먼트 주파수
+        formant_timbre: 포먼트 톤
+        post_process: 후처리 여부
+        reverb: 리버브 사용 여부
+        reverb_room_size: 리버브 룸 크기
+        reverb_damping: 리버브 댐핑
+        reverb_wet_gain: 리버브 웻 게인
+        reverb_dry_gain: 리버브 드라이 게인
+        reverb_width: 리버브 너비
+        reverb_freeze_mode: 리버브 프리즈 모드
+        
+    Returns:
+        RVC inference 설정 딕셔너리
+    """
+    return {
+        'pitch': pitch,
+        'index_rate': index_rate,
+        'volume_envelope': volume_envelope,
+        'protect': protect,
+        'f0_method': f0_method,
+        'input_path': input_path,
+        'output_path': output_path,
+        'pth_path': pth_path,
+        'index_path': index_path,
+        'split_audio': split_audio,
+        'f0_autotune': f0_autotune,
+        'f0_autotune_strength': f0_autotune_strength,
+        'proposed_pitch': proposed_pitch,
+        'proposed_pitch_threshold': proposed_pitch_threshold,
+        'clean_audio': clean_audio,
+        'clean_strength': clean_strength,
+        'export_format': export_format,
+        'embedder_model': embedder_model,
+        'embedder_model_custom': None,
+        'formant_shifting': formant_shifting,
+        'formant_qfrency': formant_qfrency,
+        'formant_timbre': formant_timbre,
+        'post_process': post_process,
+        'reverb': reverb,
+        'pitch_shift': False,
+        'limiter': False,
+        'gain': False,
+        'distortion': False,
+        'chorus': False,
+        'bitcrush': False,
+        'clipping': False,
+        'compressor': False,
+        'delay': False,
+        'reverb_room_size': reverb_room_size,
+        'reverb_damping': reverb_damping,
+        'reverb_wet_gain': reverb_wet_gain,
+        'reverb_dry_gain': reverb_dry_gain,
+        'reverb_width': reverb_width,
+        'reverb_freeze_mode': reverb_freeze_mode,
+        'pitch_shift_semitones': 0.0,
+        'limiter_threshold': -6,
+        'limiter_release_time': 0.01,
+        'gain_db': 0.0,
+        'distortion_gain': 25,
+        'chorus_rate': 1.0,
+        'chorus_depth': 0.25,
+        'chorus_center_delay': 7,
+        'chorus_feedback': 0.0,
+        'chorus_mix': 0.5,
+        'bitcrush_bit_depth': 8,
+        'clipping_threshold': -6,
+        'compressor_threshold': 0,
+        'compressor_ratio': 1,
+        'compressor_attack': 1.0,
+        'compressor_release': 100,
+        'delay_seconds': 0.5,
+        'delay_feedback': 0.0,
+        'delay_mix': 0.5,
+        'sid': 0,
+    }
+
+
 def _ensure_directory(path: Path) -> Path:
+    """디렉토리가 없으면 생성하고 반환"""
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
-# 절대경로 혹은 base 경로 기준 절대경로 변환
 def _resolve_path(input_path: str, base: Path) -> Path:
+    """상대 경로를 base 기준으로 절대 경로로 변환"""
     path_obj = Path(input_path)
     if not path_obj.is_absolute():
         path_obj = base / path_obj
     return path_obj.resolve()
 
 
-# 모델별 로그 디렉토리 생성 및 반환
 def _logs_dir(model_name: str) -> Path:
+    """모델별 로그 디렉토리 생성 및 반환"""
     return _ensure_directory(RVC_LOGS_DIR / model_name)
 
 
-# 차단(blocking) 함수 비동기 실행 도와주는 헬퍼
 async def _run_blocking(func, *args, **kwargs):
+    """블로킹 함수를 별도 스레드에서 비동기로 실행"""
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, lambda: func(*args, **kwargs))
 
 
-# 학습 완료 후 학습용 데이터셋 삭제
 async def _remove_dataset(dataset_path):
+    """학습용 데이터셋 디렉토리 삭제 (존재하지 않으면 무시)"""
     path = Path(dataset_path)
     if not path.exists():
-        logger.error(f"삭제할 경로를 찾을 수 없습니다: {dataset_path}")
-        raise FileNotFoundError(f"삭제할 경로를 찾을 수 없습니다: {dataset_path}")
+        logger.debug(
+            f"삭제할 데이터셋 경로가 존재하지 않음 (이미 삭제되었거나 생성되지 않음): {dataset_path}"
+        )
+        return
 
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, lambda: shutil.rmtree(path))
+    if not path.is_dir():
+        logger.warning(f"데이터셋 경로가 디렉토리가 아님: {dataset_path}")
+        return
+
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, lambda: shutil.rmtree(path))
+        logger.info(f"데이터셋 디렉토리 삭제 완료: {dataset_path}")
+    except Exception as e:
+        logger.error(f"데이터셋 삭제 중 오류 발생: {dataset_path} - {e}")
+        raise
 
 
-# model_dir 내 모든 파일과 폴더를 삭제하되, 확장자가 .pth 인 파일만 유지
+def _update_model_info_files(model_dir: Path) -> None:
+    """학습 완료 후 model_info.json의 모델 파일(.pth)과 인덱스 파일(.index) 경로를 업데이트
+
+    학습 중 생성된 모든 .pth와 .index 파일의 절대 경로를 수집하여
+    model_info.json에 저장합니다. UI에서 모델 리스트 조회 시 사용됩니다.
+    """
+    import json
+
+    model_info_path = model_dir / "model_info.json"
+    if not model_info_path.exists():
+        logger.warning(f"model_info.json 파일이 없습니다: {model_info_path}")
+        return
+
+    try:
+        with open(model_info_path, "r", encoding="utf-8") as f:
+            model_info_json = json.load(f)
+
+        pth_files = list(model_dir.glob("*.pth"))
+        index_files = list(model_dir.glob("*.index"))
+
+        pth_files_absolute = sorted([str(f.resolve()) for f in pth_files])
+        index_files_absolute = sorted([str(f.resolve()) for f in index_files])
+
+        existing_pth = set(model_info_json.get("model_files_absolute", []))
+        existing_index = set(model_info_json.get("index_files_absolute", []))
+
+        new_pth = set(pth_files_absolute)
+        new_index = set(index_files_absolute)
+
+        added_pth = new_pth - existing_pth
+        added_index = new_index - existing_index
+
+        if added_pth:
+            logger.info(
+                f"새 모델 파일 감지 및 model_info.json 업데이트: {', '.join(sorted(added_pth))}"
+            )
+        if added_index:
+            logger.info(
+                f"새 인덱스 파일 감지 및 model_info.json 업데이트: {', '.join(sorted(added_index))}"
+            )
+
+        model_info_json["model_files_absolute"] = sorted(list(new_pth))
+        model_info_json["index_files_absolute"] = sorted(list(new_index))
+
+        with open(model_info_path, "w", encoding="utf-8") as f:
+            json.dump(model_info_json, f, indent=2, ensure_ascii=False)
+
+        if added_pth or added_index:
+            logger.debug(f"model_info.json 업데이트 완료: {model_info_path}")
+
+    except Exception as e:
+        logger.error(
+            f"model_info.json 업데이트 실패: {model_info_path} - {e}", exc_info=True
+        )
+
+
 async def _remove_preprocess(model_dir):
+    """학습 완료 후 전처리 산출물 정리
+
+    학습 중 생성된 전처리 산출물(특징 추출 파일, 임시 파일 등)을 삭제합니다.
+    모델 파일(.pth), 인덱스 파일(.index), model_info.json은 유지합니다.
+    """
     path = Path(model_dir)
     if not path.exists() or not path.is_dir():
         raise FileNotFoundError(
@@ -100,14 +402,17 @@ async def _remove_preprocess(model_dir):
     def _clean_dir():
         for item in path.iterdir():
             if item.is_file():
-                if item.suffix not in [".pth", ".index"]:
+                # 모델 파일, 인덱스 파일, 모델 정보 파일은 유지
+                if (
+                    item.suffix not in [".pth", ".index"]
+                    and item.name != "model_info.json"
+                ):
                     try:
                         item.unlink()
                     except Exception as e:
                         logger.warning(f"파일 삭제 실패: {item} - {e}")
             elif item.is_dir():
                 try:
-                    # 폴더 내 모든 내용 삭제 후 폴더 삭제
                     shutil.rmtree(item)
                 except Exception as e:
                     logger.warning(f"폴더 삭제 실패: {item} - {e}")
@@ -125,18 +430,49 @@ async def _remove_file(file_path: str):
     await loop.run_in_executor(None, path.unlink)
 
 
-# 모델 학습 함수, 비동기로 학습 스크립트 호출
 async def train_model(
     model_name: str,
     dataset_path: str,
     sample_rate: Optional[int] = None,
     total_epoch: Optional[int] = None,
     batch_size: Optional[int] = None,
+    embedder_model: Optional[str] = None,
+    vocoder: Optional[str] = None,
+    overtraining_detector: Optional[bool] = None,
+    custom_pretrained: bool = False,
+    g_pretrained_path: str = None,
+    d_pretrained_path: str = None,
+    model_description: Optional[str] = None,
 ) -> dict:
+    """모델 학습 실행
+    
+    Args:
+        model_name: 모델 이름
+        dataset_path: 데이터셋 경로
+        sample_rate: 샘플링 레이트
+        total_epoch: 총 에포크 수
+        batch_size: 배치 크기
+        embedder_model: 임베더 모델
+        vocoder: 보코더
+        overtraining_detector: 오버트레이닝 감지 여부
+        custom_pretrained: 커스텀 사전 학습 모델 사용 여부
+        g_pretrained_path: Generator 사전 학습 모델 경로
+        d_pretrained_path: Discriminator 사전 학습 모델 경로
+        model_description: 모델 설명
+        
+    Returns:
+        학습 완료 정보 딕셔너리
+    """
     defaults = TRAINING_DEFAULTS
     sample_rate = sample_rate or defaults.sample_rate
     total_epoch = total_epoch or defaults.total_epoch
     batch_size = batch_size or defaults.batch_size
+    embedder_model = embedder_model or defaults.embedder_model
+    vocoder = vocoder or defaults.vocoder
+    overtraining_detector = overtraining_detector or defaults.overtraining_detector
+    custom_pretrained = custom_pretrained or defaults.custom_pretrained
+    g_pretrained_path = g_pretrained_path or defaults.g_pretrained_path
+    d_pretrained_path = d_pretrained_path or defaults.d_pretrained_path
 
     dataset = _resolve_path(dataset_path, RVC_ROOT)
     if not dataset.exists():
@@ -145,7 +481,118 @@ async def train_model(
     model_dir = _logs_dir(model_name)
     logger.info("Training start | model=%s dataset=%s", model_name, dataset)
 
-    # prerequisites, preprocess, extract, train 스크립트를 순차 실행
+    # 학습 시작 전에 model_info.json 생성
+    # 학습 중간에 실패하더라도 모델 정보는 남아있어야 하므로,
+    # 학습 시작 전에 기본 정보를 저장합니다.
+    import json
+
+    model_info_path = model_dir / "model_info.json"
+    model_info_json = {
+        "model_name": model_name,
+        "embedder_model": embedder_model,
+        "sample_rate": sample_rate,
+        "total_epoch": total_epoch,
+        "vocoder": vocoder,
+        "model_files_absolute": [],  # 학습 완료 후 _update_model_info_files에서 업데이트
+        "index_files_absolute": [],  # 학습 완료 후 _update_model_info_files에서 업데이트
+        "model_description": model_description,
+    }
+
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    with open(model_info_path, "w", encoding="utf-8") as f:
+        json.dump(model_info_json, f, indent=2, ensure_ascii=False)
+    logger.info(f"모델 정보 파일 생성 완료 (학습 시작 전): {model_info_path}")
+
+    # 학습용 오디오 파일 보컬 분리
+    # 추론과 동일하게 보컬만 추출하여 학습 품질을 향상시킵니다.
+    # 별도 프로세스에서 실행되므로 TensorFlow 메모리 누수 없이 자동으로 정리됩니다.
+    logger.info("학습용 오디오 파일 보컬 분리 시작")
+    audio_extensions = {".wav", ".mp3", ".flac", ".m4a", ".ogg"}
+    audio_files = [
+        f
+        for f in dataset.iterdir()
+        if f.is_file() and f.suffix.lower() in audio_extensions
+    ]
+
+    if not audio_files:
+        raise ValueError(f"학습용 오디오 파일을 찾을 수 없습니다: {dataset}")
+
+    logger.info(f"보컬 분리 대상 파일 수: {len(audio_files)}")
+
+    # spleeter가 생성하는 임시 분리 폴더를 위한 디렉토리
+    temp_separation_dir = dataset / "temp_separation"
+    temp_separation_dir.mkdir(exist_ok=True)
+
+    separation_folders = []
+
+    try:
+        for audio_file in audio_files:
+            logger.info(f"보컬 분리 중: {audio_file.name}")
+            try:
+                separation_result = await separate_vocal_instrumental(
+                    str(audio_file), str(temp_separation_dir)
+                )
+                vocals_path = Path(separation_result["vocals"])
+
+                if not vocals_path.exists():
+                    logger.warning(f"보컬 분리 실패: {vocals_path} - 원본 파일 사용")
+                    continue
+
+                # 빈 파일 체크: TensorFlow 오류로 인해 파일이 생성되었지만 비어있을 수 있음
+                if vocals_path.stat().st_size == 0:
+                    logger.warning(
+                        f"보컬 분리 결과 파일이 비어있음: {vocals_path} - 원본 파일 사용"
+                    )
+                    continue
+
+                # 원본 파일을 보컬 파일로 교체
+                # 원본 파일 확장자는 유지하며, 보컬 파일로 덮어쓰기합니다.
+                # 백업은 생성하지 않습니다 (사용자가 원본을 보존하려면 미리 백업해야 함).
+                shutil.copy2(vocals_path, audio_file)
+                logger.info(f"보컬 파일로 교체 완료: {audio_file.name}")
+
+                # 나중에 정리하기 위해 분리 폴더 경로 저장
+                separation_folder = vocals_path.parent
+                if separation_folder not in separation_folders:
+                    separation_folders.append(separation_folder)
+
+            except RuntimeError as e:
+                logger.error(
+                    f"보컬 분리 실패 (원본 파일 사용): {audio_file.name} - {e}",
+                    exc_info=True,
+                )
+            except Exception as e:
+                logger.error(
+                    f"보컬 분리 중 예상치 못한 오류 (원본 파일 사용): {audio_file.name} - {e}",
+                    exc_info=True,
+                )
+
+        logger.info("학습용 오디오 파일 보컬 분리 완료")
+
+    finally:
+        # 보컬 분리 성공/실패 여부와 관계없이 임시 파일 정리
+        if temp_separation_dir.exists():
+            try:
+                await _run_blocking(shutil.rmtree, temp_separation_dir)
+                logger.info(f"임시 분리 폴더 삭제 완료: {temp_separation_dir}")
+            except Exception as e:
+                logger.warning(f"임시 분리 폴더 삭제 실패: {temp_separation_dir} - {e}")
+
+        # spleeter가 각 파일마다 생성한 분리 폴더 정리
+        for sep_folder in separation_folders:
+            if sep_folder.exists() and sep_folder.is_dir():
+                try:
+                    await _run_blocking(shutil.rmtree, sep_folder)
+                    logger.debug(f"분리 폴더 삭제 완료: {sep_folder}")
+                except Exception as e:
+                    logger.warning(f"분리 폴더 삭제 실패: {sep_folder} - {e}")
+
+    # RVC 학습 파이프라인 순차 실행
+    # prerequisites: 의존성 확인 및 초기화
+    # preprocess: 오디오 전처리 (샘플링, 노이즈 제거 등)
+    # extract: 특징 추출 (F0, 임베딩 등)
+    # train: 모델 학습 및 인덱스 생성
     await _run_blocking(run_prerequisites_script, True, True, True)
 
     await _run_blocking(
@@ -170,7 +617,7 @@ async def train_model(
         defaults.cpu_cores,
         defaults.gpu,
         sample_rate,
-        defaults.embedder_model,
+        embedder_model,
         None,
         defaults.include_mutes,
     )
@@ -185,22 +632,23 @@ async def train_model(
         sample_rate,
         batch_size,
         defaults.gpu,
-        defaults.overtraining_detector,
+        overtraining_detector,
         defaults.overtraining_threshold,
         defaults.pretrained,
         defaults.cleanup,
         defaults.index_algorithm,
         defaults.cache_data_in_gpu,
-        False,
-        None,
-        None,
-        defaults.vocoder,
+        custom_pretrained,
+        g_pretrained_path,
+        d_pretrained_path,
+        vocoder,
         defaults.checkpointing,
     )
 
     logger.info("Training finished | model=%s dir=%s", model_name, model_dir)
 
-    # 학습이 실제로 완료되었는지 확인 (모델 파일이 생성되었는지 확인)
+    # 학습 완료 검증: 인덱스 파일 생성 여부 확인
+    # 인덱스 파일이 없으면 학습이 제대로 완료되지 않은 것으로 간주
     model_files = list(model_dir.glob("*.index"))
     if not model_files:
         raise RuntimeError(
@@ -208,14 +656,18 @@ async def train_model(
         )
     logger.info(f"생성된 모델 파일 수: {len(model_files)}")
 
+    # 학습 완료 후 생성된 모든 .pth와 .index 파일 경로를 model_info.json에 저장
+    _update_model_info_files(model_dir)
+
     # 학습용 데이터셋 및 중간 산출물 정리
+    # 데이터셋 삭제 실패해도 학습은 완료되었으므로 경고만 출력하고 계속 진행
     try:
         await _remove_dataset(dataset_path)
-        logger.info("학습용 데이터셋 삭제 완료: %s", dataset_path)
-    except FileNotFoundError:
-        logger.warning("삭제 대상 데이터셋 경로 없음: %s", dataset_path)
     except Exception as e:
-        logger.warning(f"데이터셋 삭제 중 오류 발생 (무시): {dataset_path} - {e}")
+        logger.error(f"데이터셋 삭제 실패: {dataset_path} - {e}")
+        logger.warning(
+            "데이터셋 삭제 실패했지만 학습은 완료되었습니다. 수동으로 삭제해주세요."
+        )
 
     try:
         await _remove_preprocess(model_dir)
@@ -233,12 +685,27 @@ async def train_model(
     }
 
 
-# 추론 실행 함수, 비동기로 infer 스크립트 호출
 async def run_inference(
     input_audio_path: str,
     model_path: str,
     index_path: Optional[str] = None,
     output_dir: str = "outputs",
+    pitch: Optional[int] = None,
+    volume_envelope: Optional[float] = None,
+    protect: Optional[float] = None,
+    f0_autotune: Optional[bool] = None,
+    f0_autotune_strength: Optional[float] = None,
+    embedder_model: Optional[str] = None,
+    index_rate: Optional[float] = None,
+    clean_audio: Optional[bool] = None,
+    clean_strength: Optional[float] = None,
+    reverb: Optional[bool] = None,
+    reverb_room_size: Optional[float] = None,
+    reverb_damping: Optional[float] = None,
+    reverb_wet_gain: Optional[float] = None,
+    reverb_dry_gain: Optional[float] = None,
+    reverb_width: Optional[float] = None,
+    reverb_freeze_mode: Optional[float] = None,
 ) -> dict:
     defaults = INFERENCE_DEFAULTS
     input_path = _resolve_path(input_audio_path, RVC_ROOT)
@@ -256,10 +723,48 @@ async def run_inference(
     resolved_output_dir = _resolve_path(output_dir, RVC_ROOT)
     output_folder = _ensure_directory(resolved_output_dir)
 
-    # 고유 ID 생성
+    pitch = pitch if pitch is not None else defaults.pitch
+    volume_envelope = volume_envelope or defaults.volume_envelope
+    protect = protect or defaults.protect
+    f0_autotune = f0_autotune or defaults.f0_autotune
+    f0_autotune_strength = defaults.f0_autotune_strength
+    embedder_model = defaults.embedder_model
+    clean_audio = clean_audio if clean_audio is not None else defaults.clean_audio
+    clean_strength = (
+        clean_strength if clean_strength is not None else defaults.clean_strength
+    )
+    reverb = reverb if reverb is not None else defaults.reverb
+    reverb_room_size = (
+        reverb_room_size if reverb_room_size is not None else defaults.reverb_room_size
+    )
+    reverb_damping = (
+        reverb_damping if reverb_damping is not None else defaults.reverb_damping
+    )
+    reverb_wet_gain = (
+        reverb_wet_gain if reverb_wet_gain is not None else defaults.reverb_wet_gain
+    )
+    reverb_dry_gain = (
+        reverb_dry_gain if reverb_dry_gain is not None else defaults.reverb_dry_gain
+    )
+    reverb_width = reverb_width if reverb_width is not None else defaults.reverb_width
+    reverb_freeze_mode = (
+        reverb_freeze_mode
+        if reverb_freeze_mode is not None
+        else defaults.reverb_freeze_mode
+    )
+
     unique_id = uuid4().hex
 
-    # 정리용 변수 초기화
+    # 메모리 추적: 추론 시작 전
+    initial_mem = None
+    try:
+        process = psutil.Process()
+        initial_mem = process.memory_info().rss / (1024**2)  # MB
+    except Exception:
+        pass
+    _log_memory_usage("추론 시작 전")
+
+    # finally 블록에서 정리하기 위한 변수
     vocals_path = None
     instrumental_path = None
     temp_vocal_output = None
@@ -267,60 +772,210 @@ async def run_inference(
 
     try:
         # 1단계: 보컬/인스트루멘탈 분리
+        # Spleeter를 사용하여 입력 오디오를 보컬과 인스트루멘탈로 분리합니다.
+        # 보컬만 변환하여 원본 인스트루멘탈과 합성하면 더 자연스러운 결과를 얻을 수 있습니다.
         logger.info(f"보컬 분리 시작: {input_path}")
-        separation_result = await separate_vocal_instrumental(
-            str(input_path), str(output_folder)
-        )
-        vocals_path = Path(separation_result["vocals"])
-        instrumental_path = Path(separation_result["instrumental"])
-        separation_folder = vocals_path.parent  # spleeter가 생성한 폴더
-        logger.info(f"분리 완료 - 보컬: {vocals_path}, 인스트: {instrumental_path}")
+        separation_result = None
+        try:
+            separation_result = await separate_vocal_instrumental(
+                str(input_path), str(output_folder)
+            )
+            vocals_path = Path(separation_result["vocals"])
+            instrumental_path = Path(separation_result["instrumental"])
+            separation_folder = vocals_path.parent
+            logger.info(f"분리 완료 - 보컬: {vocals_path}, 인스트: {instrumental_path}")
+        finally:
+            # 보컬 분리 단계 메모리 정리
+            if separation_result is not None:
+                del separation_result
+            # 별도 프로세스에서 실행했으므로 메모리 정리 불필요 (프로세스 종료 시 자동 해제)
+            _log_memory_usage("보컬 분리 후")
 
         # 2단계: 보컬만 inference 실행
+        # 분리된 보컬에만 음성 변환을 적용합니다.
+        # 인스트루멘탈은 원본 그대로 유지하여 음질 손실을 최소화합니다.
         logger.info(f"보컬 inference 시작: {vocals_path}")
         temp_vocal_output = output_folder / f"{unique_id}_vocal_infer.wav"
-        vocal_message, vocal_exported = await _run_blocking(
-            run_infer_script,
-            defaults.pitch,
-            defaults.index_rate,
-            defaults.volume_envelope,
-            defaults.protect,
-            defaults.f0_method,
-            str(vocals_path),
-            str(temp_vocal_output),
-            str(model_file),
-            str(idx_path) if idx_path else "",
-            defaults.split_audio,
-            defaults.f0_autotune,
-            defaults.f0_autotune_strength,
-            defaults.proposed_pitch,
-            defaults.proposed_pitch_threshold,
-            defaults.clean_audio,
-            defaults.clean_strength,
-            defaults.export_format,
-            defaults.embedder_model,
-            None,
-            defaults.formant_shifting,
-            defaults.formant_qfrency,
-            defaults.formant_timbre,
-            defaults.post_process,
-        )
-        logger.info(f"보컬 inference 완료: {vocal_exported}")
+        vocal_message = None
+        vocal_exported = None
 
-        # 3단계: 변환된 보컬 + 원본 인스트루멘탈 합성
-        logger.info("오디오 합성 시작")
-        final_output = output_folder / f"{unique_id}_final.wav"
-        final_output_path = await merge_vocal_instrumental(
-            str(vocal_exported), str(instrumental_path), str(final_output)
+        try:
+            _log_memory_usage("Inference 실행 전")
+            # prerequisites: 의존성 확인 및 초기화
+            await _run_blocking(run_prerequisites_script, True, True, True)
+
+            # RVC를 별도 프로세스에서 실행하여 메모리 완전 분리
+            # 프로세스 종료 시 모든 메모리가 자동으로 해제됩니다.
+            def _run_rvc_in_process():
+                import json
+                import tempfile
+                
+                # RVC 설정 딕셔너리 생성
+                config = _build_rvc_config(
+                    pitch=pitch,
+                    index_rate=index_rate,
+                    volume_envelope=volume_envelope,
+                    protect=protect,
+                    f0_method=defaults.f0_method,
+                    input_path=str(vocals_path),
+                    output_path=str(temp_vocal_output),
+                    pth_path=str(model_file),
+                    index_path=str(idx_path) if idx_path else '',
+                    split_audio=defaults.split_audio,
+                    f0_autotune=f0_autotune,
+                    f0_autotune_strength=f0_autotune_strength,
+                    proposed_pitch=defaults.proposed_pitch,
+                    proposed_pitch_threshold=defaults.proposed_pitch_threshold,
+                    clean_audio=clean_audio,
+                    clean_strength=clean_strength,
+                    export_format=defaults.export_format,
+                    embedder_model=embedder_model,
+                    formant_shifting=defaults.formant_shifting,
+                    formant_qfrency=defaults.formant_qfrency,
+                    formant_timbre=defaults.formant_timbre,
+                    post_process=defaults.post_process,
+                    reverb=reverb,
+                    reverb_room_size=reverb_room_size,
+                    reverb_damping=reverb_damping,
+                    reverb_wet_gain=reverb_wet_gain,
+                    reverb_dry_gain=reverb_dry_gain,
+                    reverb_width=reverb_width,
+                    reverb_freeze_mode=reverb_freeze_mode,
+                )
+                
+                # 임시 JSON 설정 파일 생성
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as f:
+                    json.dump(config, f, ensure_ascii=False)
+                    config_path = f.name
+                
+                try:
+                    # RVC worker 프로세스 실행
+                    worker_script = PROJECT_ROOT / "app" / "services" / "rvc_worker.py"
+                    if not worker_script.exists():
+                        raise FileNotFoundError(f"RVC worker script not found: {worker_script}")
+                    
+                    python_exe = sys.executable
+                    result = subprocess.run(
+                        [python_exe, str(worker_script), config_path],
+                        capture_output=True,
+                        text=True,
+                        timeout=1800,  # 30분 타임아웃
+                    )
+                    
+                    # 결과 파싱
+                    if result.returncode != 0:
+                        error_msg = f"RVC 프로세스 실패 (exit code: {result.returncode})"
+                        if result.stderr:
+                            # stderr에서 JSON 결과 찾기
+                            try:
+                                stderr_lines = result.stderr.strip().split('\n')
+                                for line in reversed(stderr_lines):
+                                    if line.startswith('{') and 'error' in line:
+                                        error_data = json.loads(line)
+                                        error_msg = f"RVC 프로세스 실패: {error_data.get('error', error_msg)}"
+                                        break
+                            except Exception:
+                                pass
+                            if 'error' not in error_msg.lower():
+                                error_msg += f"\nStderr: {result.stderr}"
+                        if result.stdout:
+                            error_msg += f"\nStdout: {result.stdout}"
+                        logger.error(error_msg)
+                        raise RuntimeError(error_msg)
+                    
+                    # stdout에서 JSON 결과 파싱
+                    stdout_lines = result.stdout.strip().split('\n')
+                    result_data = None
+                    for line in reversed(stdout_lines):
+                        if line.startswith('{') and 'success' in line:
+                            try:
+                                result_data = json.loads(line)
+                                break
+                            except json.JSONDecodeError:
+                                continue
+                    
+                    if result_data is None:
+                        raise RuntimeError(f"RVC 프로세스 결과 파싱 실패. stdout: {result.stdout}")
+                    
+                    if not result_data.get('success', False):
+                        error = result_data.get('error', 'Unknown error')
+                        raise RuntimeError(f"RVC inference 실패: {error}")
+                    
+                    message = result_data.get('message', 'Inference completed')
+                    output_path = result_data.get('output_path', str(temp_vocal_output))
+                    
+                    return message, output_path
+                    
+                finally:
+                    # 임시 JSON 파일 삭제
+                    try:
+                        os.unlink(config_path)
+                    except Exception:
+                        pass
+            
+            vocal_message, vocal_exported = await _run_blocking(_run_rvc_in_process)
+            _log_memory_usage("Inference 스크립트 완료 직후")
+        except Exception as e:
+            logger.error(f"보컬 inference 실행 중 오류 발생: {e}", exc_info=True)
+            raise RuntimeError(f"보컬 inference 실패: {str(e)}")
+        finally:
+            # 별도 프로세스에서 실행했으므로 메모리 정리 불필요 (프로세스 종료 시 자동 해제)
+            _log_memory_usage("Inference 실행 후 (프로세스 종료)")
+
+        # 출력 파일 검증: TensorFlow 오류로 인해 파일이 생성되지 않았거나 비어있을 수 있음
+        vocal_exported_path = Path(vocal_exported)
+        if not vocal_exported_path.exists() or not vocal_exported_path.is_file():
+            error_msg = (
+                f"보컬 inference 출력 파일이 생성되지 않았습니다: {vocal_exported}"
+            )
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
+        if vocal_exported_path.stat().st_size == 0:
+            error_msg = f"보컬 inference 출력 파일이 비어있습니다: {vocal_exported}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
+        logger.info(
+            f"보컬 inference 완료: {vocal_exported} (크기: {vocal_exported_path.stat().st_size} bytes)"
         )
+
+        # 3단계: 변환된 보컬과 원본 인스트루멘탈 합성
+        # 변환된 보컬과 원본 인스트루멘탈을 믹싱하여 최종 출력을 생성합니다.
+        logger.info("오디오 합성 시작")
+        _log_memory_usage("오디오 합성 전")
+        final_output = output_folder / f"{unique_id}_final.wav"
+        final_output_path = None
+
+        try:
+            final_output_path = await merge_vocal_instrumental(
+                str(vocal_exported), str(instrumental_path), str(final_output), pitch
+            )
+        except Exception as e:
+            logger.error(f"오디오 합성 중 오류 발생: {e}", exc_info=True)
+            raise RuntimeError(f"오디오 합성 실패: {str(e)}")
+        finally:
+            # 합성 단계 메모리 정리
+            gc.collect()
+            _log_memory_usage("오디오 합성 후")
+
         logger.info(f"최종 합성 완료: {final_output_path}")
 
-        # 최종 출력 파일이 실제로 생성되었는지 확인
+        # 최종 출력 파일 검증
         final_path = Path(final_output_path)
         if not final_path.exists() or not final_path.is_file():
-            raise RuntimeError(
-                f"최종 출력 파일이 생성되지 않았습니다: {final_output_path}"
-            )
+            error_msg = f"최종 출력 파일이 생성되지 않았습니다: {final_output_path}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
+        if final_path.stat().st_size == 0:
+            error_msg = f"최종 출력 파일이 비어있습니다: {final_output_path}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
+        logger.info(
+            f"최종 출력 파일 확인 완료: {final_output_path} (크기: {final_path.stat().st_size} bytes)"
+        )
 
         return {
             "message": f"보컬 분리 → 변환 → 합성 완료 | {vocal_message}",
@@ -334,11 +989,10 @@ async def run_inference(
         }
 
     except Exception as e:
-        # 추론 실패 시 예외를 다시 발생시켜 엔드포인트에서 처리하도록 함
         logger.error(f"추론 처리 중 오류 발생: {e}")
         raise
     finally:
-        # 예외 발생 여부와 관계없이 항상 임시 파일 정리
+        # 성공/실패 여부와 관계없이 임시 파일 정리
         cleanup_paths = [
             vocals_path,
             instrumental_path,
@@ -352,7 +1006,7 @@ async def run_inference(
                 except Exception as e:
                     logger.warning(f"임시 파일 삭제 실패: {path} - {e}")
 
-        # spleeter가 생성한 폴더 전체 삭제 (output_dir/temp_inference_xxx/)
+        # spleeter가 생성한 분리 폴더 삭제
         if (
             separation_folder
             and separation_folder.exists()
@@ -364,9 +1018,76 @@ async def run_inference(
             except Exception as e:
                 logger.warning(f"임시 추론 폴더 삭제 실패: {separation_folder} - {e}")
 
+        # 업로드된 임시 입력 파일 삭제
+        # target_audio 디렉토리에 저장된 temp_inference_* 파일은 추론 완료 후 삭제합니다.
+        input_path_obj = Path(input_audio_path)
+        if (
+            input_path_obj.exists()
+            and "target_audio" in str(input_path_obj)
+            and input_path_obj.name.startswith("temp_inference_")
+        ):
+            try:
+                await _remove_file(input_audio_path)
+                logger.info(f"입력 임시 오디오 파일 삭제 완료: {input_audio_path}")
+            except Exception as e:
+                logger.warning(
+                    f"입력 임시 오디오 파일 삭제 실패: {input_audio_path} - {e}"
+                )
+        
+        # 최종 메모리 정리
+        _cleanup_all_memory()
+        _log_memory_usage("최종 정리 후")
+        
+        # 메모리 증가량 계산
+        try:
+            process = psutil.Process()
+            final_mem = process.memory_info().rss / (1024**2)  # MB
+            if initial_mem is not None:
+                mem_increase = final_mem - initial_mem
+                logger.info(
+                    f"[메모리 추적] 추론 작업 완료 | "
+                    f"시작: {initial_mem:.1f} MB | "
+                    f"종료: {final_mem:.1f} MB | "
+                    f"증가: {mem_increase:+.1f} MB"
+                )
+                if mem_increase > 100:
+                    logger.warning(
+                        f"[메모리 누수 의심] 추론 작업 후 메모리가 {mem_increase:.1f} MB 증가했습니다. "
+                        f"모델이나 오디오 데이터가 제대로 해제되지 않았을 수 있습니다."
+                    )
+            else:
+                logger.info(f"[메모리 추적] 추론 작업 완료 후 최종 메모리: {final_mem:.1f} MB")
+        except Exception:
+            pass
+
+
+# 보컬 분리 작업 동시 실행 제한
+# Spleeter는 TensorFlow를 사용하는데, TensorFlow는 스레드 안전하지 않습니다.
+# 전용 스레드 풀(max_workers=1)을 사용하여 한 번에 하나의 작업만 실행되도록 제한합니다.
+_separation_lock = asyncio.Lock()
+_separation_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="spleeter")
+
 
 async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) -> dict:
-    """오디오를 보컬/인스트루멘탈로 분리 (문자열 경로 사용)"""
+    """오디오를 보컬/인스트루멘탈로 분리
+    
+    Spleeter를 사용하여 입력 오디오를 보컬과 인스트루멘탈로 분리합니다.
+    별도 프로세스에서 실행되므로 TensorFlow 메모리 누수 없이 자동으로 정리됩니다.
+    TensorFlow Graph 충돌 방지를 위해 락을 사용하여 동시 실행을 제한합니다.
+    
+    이 함수는 추론(inference)과 학습(train) 모두에서 사용됩니다.
+    
+    Args:
+        input_audio_path: 입력 오디오 파일 경로
+        output_dir: 출력 디렉토리 경로
+        
+    Returns:
+        {"vocals": 보컬 파일 경로, "instrumental": 인스트루멘탈 파일 경로}
+        
+    Raises:
+        FileNotFoundError: 입력 파일이 존재하지 않을 때
+        RuntimeError: 보컬 분리 실패 시
+    """
     input_path = Path(input_audio_path)
     if not input_path.exists():
         raise FileNotFoundError(f"입력 파일 없음: {input_audio_path}")
@@ -374,41 +1095,133 @@ async def separate_vocal_instrumental(input_audio_path: str, output_dir: str) ->
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    separator = Separator("spleeter:2stems")
-    separator.separate_to_file(input_audio_path, output_dir)
-
     base_name = input_path.stem
-    vocals_path = output_path / base_name / f"vocals.wav"
-    instrumental_path = output_path / base_name / f"accompaniment.wav"
+    vocals_path = output_path / base_name / "vocals.wav"
+    instrumental_path = output_path / base_name / "accompaniment.wav"
 
-    return {"vocals": str(vocals_path), "instrumental": str(instrumental_path)}
+    # 락을 사용하여 동시 실행 제한
+    # TensorFlow Graph 중첩 오류를 방지하기 위해 한 번에 하나의 보컬 분리 작업만 실행합니다.
+    async with _separation_lock:
+        separation_success = False
+        separation_error = None
+
+        try:
+            # 별도 프로세스에서 실행하여 메모리 완전 분리
+            # 프로세스가 종료되면 모든 TensorFlow 메모리가 자동으로 해제됩니다.
+            def _separate_audio():
+                worker_script = PROJECT_ROOT / "app" / "services" / "spleeter_worker.py"
+                if not worker_script.exists():
+                    raise FileNotFoundError(f"Spleeter worker script not found: {worker_script}")
+                
+                # Python 인터프리터 경로
+                python_exe = sys.executable
+                
+                # 별도 프로세스에서 실행
+                result = subprocess.run(
+                    [python_exe, str(worker_script), input_audio_path, output_dir],
+                    capture_output=True,
+                    text=True,
+                    timeout=600,  # 10분 타임아웃
+                )
+                
+                if result.returncode != 0:
+                    error_msg = f"Spleeter 프로세스 실패 (exit code: {result.returncode})"
+                    if result.stderr:
+                        error_msg += f"\nStderr: {result.stderr}"
+                    if result.stdout:
+                        error_msg += f"\nStdout: {result.stdout}"
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg)
+
+            # 전용 스레드 풀 사용 (max_workers=1)
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(_separation_executor, _separate_audio)
+            separation_success = True
+
+        except Exception as e:
+            separation_error = e
+            logger.warning(
+                f"보컬 분리 실행 중 예외 발생 (출력 파일 확인 예정) | input={input_audio_path} | error={e}"
+            )
+            # TensorFlow 오류가 발생해도 실제로 파일이 생성되었는지 확인합니다.
+
+    # 출력 파일 검증: 실제 성공 여부는 파일 생성 여부로 판단
+    # TensorFlow 오류 메시지가 나와도 파일이 정상적으로 생성되었으면 성공으로 처리합니다.
+    if vocals_path.exists() and instrumental_path.exists():
+        # 빈 파일 체크: 파일이 생성되었지만 비어있을 수 있음
+        if vocals_path.stat().st_size > 0 and instrumental_path.stat().st_size > 0:
+            logger.info(
+                f"보컬 분리 성공 | input={input_audio_path} | "
+                f"vocals={vocals_path} ({vocals_path.stat().st_size} bytes) | "
+                f"instrumental={instrumental_path} ({instrumental_path.stat().st_size} bytes)"
+            )
+            return {"vocals": str(vocals_path), "instrumental": str(instrumental_path)}
+        else:
+            error_msg = (
+                f"보컬 분리 출력 파일이 비어있습니다: "
+                f"vocals={vocals_path.stat().st_size} bytes, "
+                f"instrumental={instrumental_path.stat().st_size} bytes"
+            )
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+    else:
+        # 출력 파일이 생성되지 않았으면 실패
+        error_msg = (
+            f"보컬 분리 출력 파일이 생성되지 않았습니다: "
+            f"vocals={vocals_path.exists()}, instrumental={instrumental_path.exists()}"
+        )
+        if separation_error:
+            error_msg += f" | 원인: {str(separation_error)}"
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
 
 
 async def merge_vocal_instrumental(
-    vocals_path: str, instrumental_path: str, output_path: str
+    vocals_path: str, instrumental_path: str, output_path: str, pitch: int = 0
 ) -> str:
-    """변환된 보컬과 원본 인스트루멘탈 합성"""
+    """변환된 보컬과 원본 인스트루멘탈 합성
+
+    변환된 보컬과 원본 인스트루멘탈을 믹싱하여 최종 오디오를 생성합니다.
+    샘플링 레이트가 다르면 보컬 기준으로 리샘플링하고, 길이가 다르면 패딩하여 맞춥니다.
+    pitch가 0이 아닌 경우 배경 음원도 동일하게 피치 조절합니다 (속도는 유지).
+    """
     loop = asyncio.get_running_loop()
 
     def _merge_audio():
-        vocals, sr_v = librosa.load(vocals_path, sr=None, mono=True)
-        instrumental, sr_i = librosa.load(instrumental_path, sr=None, mono=True)
+        vocals = None
+        instrumental = None
+        mixed = None
+        try:
+            vocals, sr_v = librosa.load(vocals_path, sr=None, mono=True)
+            instrumental, sr_i = librosa.load(instrumental_path, sr=None, mono=True)
 
-        if sr_v != sr_i:
-            raise ValueError("샘플레이트 불일치")
+            # 샘플링 레이트가 다르면 보컬 기준으로 리샘플링
+            if sr_v != sr_i:
+                instrumental = librosa.resample(instrumental, orig_sr=sr_i, target_sr=sr_v)
+                sr_i = sr_v
 
-        # 길이 맞추기
-        max_len = max(len(vocals), len(instrumental))
-        vocals = np.pad(vocals, (0, max_len - len(vocals)), "constant")
-        instrumental = np.pad(
-            instrumental, (0, max_len - len(instrumental)), "constant"
-        )
+            # 피치 조절이 0이 아닌 경우 배경 음원도 동일하게 피치 조절 (속도 유지)
+            if pitch != 0:
+                # librosa의 pitch_shift를 사용하여 피치 조절 (속도는 유지)
+                # pitch는 반음 단위 (12 = 1옥타브)
+                instrumental = librosa.effects.pitch_shift(instrumental, sr=sr_v, n_steps=pitch)
 
-        # 단순 덧셈 합성
-        mixed = vocals + instrumental
+            # 길이가 다르면 더 긴 쪽에 맞춰 패딩
+            max_len = max(len(vocals), len(instrumental))
+            vocals = np.pad(vocals, (0, max_len - len(vocals)), "constant")
+            instrumental = np.pad(
+                instrumental, (0, max_len - len(instrumental)), "constant"
+            )
 
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        sf.write(output_path, mixed, sr_v)
-        return output_path
+            # 단순 덧셈으로 믹싱
+            mixed = vocals + instrumental
+
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            sf.write(output_path, mixed, sr_v)
+            return output_path
+        finally:
+            # 오디오 데이터 메모리 해제
+            _cleanup_audio_data(vocals=vocals, instrumental=instrumental, mixed=mixed)
+            _force_garbage_collection()
 
     return await loop.run_in_executor(None, _merge_audio)

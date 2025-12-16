@@ -37,6 +37,8 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("faiss").setLevel(logging.WARNING)
 logging.getLogger("faiss.loader").setLevel(logging.WARNING)
 
+logger = logging.getLogger(__name__)
+
 
 class VoiceConverter:
     """
@@ -89,7 +91,7 @@ class VoiceConverter:
             )
             return reduced_noise
         except Exception as error:
-            print(f"An error occurred removing audio noise: {error}")
+            logger.error(f"오디오 노이즈 제거 중 오류 발생: {error}", exc_info=True)
             return None
 
     @staticmethod
@@ -104,7 +106,6 @@ class VoiceConverter:
         """
         try:
             if output_format != "WAV":
-                print(f"Saving audio as {output_format}...")
                 audio, sample_rate = librosa.load(input_path, sr=None)
                 common_sample_rates = [
                     8000,
@@ -124,7 +125,8 @@ class VoiceConverter:
                 sf.write(output_path, audio, target_sr, format=output_format.lower())
             return output_path
         except Exception as error:
-            print(f"An error occurred converting the audio format: {error}")
+            logger.error(f"오디오 형식 변환 중 오류 발생: {error}", exc_info=True)
+            return None
 
     @staticmethod
     def post_process_audio(
@@ -244,14 +246,13 @@ class VoiceConverter:
             **kwargs: Additional keyword arguments.
         """
         if not model_path:
-            print("No model path provided. Aborting conversion.")
+            logger.error("모델 경로가 제공되지 않았습니다. 변환을 중단합니다.")
             return
 
         self.get_vc(model_path, sid)
 
         try:
             start_time = time.time()
-            print(f"Converting audio '{audio_input_path}'...")
 
             audio = load_audio_infer(
                 audio_input_path,
@@ -281,7 +282,6 @@ class VoiceConverter:
 
             if split_audio:
                 chunks, intervals = process_audio(audio, 16000)
-                print(f"Audio split into {len(chunks)} chunks for processing.")
             else:
                 chunks = []
                 chunks.append(audio)
@@ -307,8 +307,6 @@ class VoiceConverter:
                     proposed_pitch_threshold=proposed_pitch_threshold,
                 )
                 converted_chunks.append(audio_opt)
-                if split_audio:
-                    print(f"Converted audio chunk {len(converted_chunks)}")
 
             if split_audio:
                 audio_opt = merge_audio(
@@ -338,14 +336,56 @@ class VoiceConverter:
             audio_output_path = self.convert_audio_format(
                 audio_output_path, output_path_format, export_format
             )
-
-            elapsed_time = time.time() - start_time
-            print(
-                f"Conversion completed at '{audio_output_path}' in {elapsed_time:.2f} seconds."
-            )
         except Exception as error:
-            print(f"An error occurred during audio conversion: {error}")
-            print(traceback.format_exc())
+            logger.error(f"오디오 변환 중 오류 발생: {error}", exc_info=True)
+            raise
+        finally:
+            # 작업 완료 후 메모리 정리
+            # 오디오 데이터 해제 (CPU 메모리 해제)
+            try:
+                if 'audio' in locals():
+                    if isinstance(audio, np.ndarray):
+                        audio = None
+                    del audio
+                if 'audio_opt' in locals():
+                    if isinstance(audio_opt, np.ndarray):
+                        audio_opt = None
+                    del audio_opt
+                if 'chunks' in locals():
+                    if isinstance(chunks, list):
+                        for chunk in chunks:
+                            if chunk is not None and isinstance(chunk, np.ndarray):
+                                chunk = None
+                            del chunk
+                    del chunks
+                if 'converted_chunks' in locals():
+                    if isinstance(converted_chunks, list):
+                        for chunk in converted_chunks:
+                            if chunk is not None and isinstance(chunk, np.ndarray):
+                                chunk = None
+                            del chunk
+                    del converted_chunks
+                if 'cleaned_audio' in locals():
+                    if isinstance(cleaned_audio, np.ndarray):
+                        cleaned_audio = None
+                    del cleaned_audio
+            except Exception:
+                pass
+            
+            # GPU 메모리 정리
+            try:
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+            except Exception:
+                pass
+            
+            # 가비지 컬렉션
+            try:
+                import gc
+                gc.collect()
+            except Exception:
+                pass
 
     def convert_audio_batch(
         self,
@@ -370,7 +410,6 @@ class VoiceConverter:
             ) as pid_file:
                 pid_file.write(str(pid))
             start_time = time.time()
-            print(f"Converting audio batch '{audio_input_paths}'...")
             audio_files = [
                 f
                 for f in os.listdir(audio_input_paths)
@@ -392,7 +431,6 @@ class VoiceConverter:
                     )
                 )
             ]
-            print(f"Detected {len(audio_files)} audio files for inference.")
             for a in audio_files:
                 new_input = os.path.join(audio_input_paths, a)
                 new_output = os.path.splitext(a)[0] + "_output.wav"
@@ -404,12 +442,9 @@ class VoiceConverter:
                     audio_output_path=new_output,
                     **kwargs,
                 )
-            print(f"Conversion completed at '{audio_input_paths}'.")
-            elapsed_time = time.time() - start_time
-            print(f"Batch conversion completed in {elapsed_time:.2f} seconds.")
         except Exception as error:
-            print(f"An error occurred during audio batch conversion: {error}")
-            print(traceback.format_exc())
+            logger.error(f"배치 오디오 변환 중 오류 발생: {error}", exc_info=True)
+            raise
         finally:
             os.remove(os.path.join(now_dir, "assets", "infer_pid.txt"))
 
@@ -426,6 +461,15 @@ class VoiceConverter:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
+        # 다른 모델로 전환할 때 이전 모델 정리
+        if self.loaded_model and self.loaded_model != weight_root:
+            # 이전 모델이 다른 경우 정리
+            self.cleanup_model()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            import gc
+            gc.collect()
+
         if not self.loaded_model or self.loaded_model != weight_root:
             self.load_model(weight_root)
             if self.cpt is not None:
@@ -439,17 +483,140 @@ class VoiceConverter:
     def cleanup_model(self):
         """
         Cleans up the model and releases resources.
+        메모리 조회는 외부에서 하도록 하여 cleanup 과정에서 메모리 증가를 방지합니다.
         """
-        if self.hubert_model is not None:
-            del self.net_g, self.n_spk, self.vc, self.hubert_model, self.tgt_sr
-            self.hubert_model = self.net_g = self.n_spk = self.vc = self.tgt_sr = None
+        try:
+            # 1. GPU 메모리 즉시 정리 (모델 삭제 전)
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-
-        del self.net_g, self.cpt
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        self.cpt = None
+                torch.cuda.synchronize()
+            
+            # 2. 모델 인스턴스 직접 삭제 (CPU 이동 없이 - 메모리 복사 방지)
+            # state_dict() 호출을 피하여 메모리 복사를 방지합니다.
+            if self.net_g is not None:
+                try:
+                    # 모델의 모든 파라미터와 버퍼를 직접 삭제
+                    if hasattr(self.net_g, 'parameters'):
+                        for param in self.net_g.parameters():
+                            if param is not None:
+                                param.data = None
+                                if hasattr(param, 'grad') and param.grad is not None:
+                                    param.grad = None
+                    if hasattr(self.net_g, 'buffers'):
+                        for buffer in self.net_g.buffers():
+                            if buffer is not None:
+                                buffer.data = None
+                    # 모델 자체 삭제
+                    del self.net_g
+                    self.net_g = None
+                except Exception as e:
+                    logger.error(f"net_g 모델 삭제 중 오류 발생: {e}", exc_info=True)
+                    self.net_g = None
+            
+            if self.vc is not None:
+                try:
+                    # Pipeline의 모든 속성 정리
+                    if hasattr(self.vc, 'autotune') and self.vc.autotune is not None:
+                        try:
+                            del self.vc.autotune
+                        except Exception:
+                            pass
+                    # Pipeline 내부의 다른 리소스 정리
+                    for attr_name in ['f0_model', 'f0_predictor']:
+                        if hasattr(self.vc, attr_name):
+                            try:
+                                attr = getattr(self.vc, attr_name)
+                                if attr is not None:
+                                    del attr
+                                    setattr(self.vc, attr_name, None)
+                            except Exception:
+                                pass
+                    del self.vc
+                    self.vc = None
+                except Exception as e:
+                    logger.error(f"vc 파이프라인 삭제 중 오류 발생: {e}", exc_info=True)
+                    self.vc = None
+            
+            if self.hubert_model is not None:
+                try:
+                    # Hubert 모델의 모든 파라미터와 버퍼를 직접 삭제
+                    if hasattr(self.hubert_model, 'parameters'):
+                        for param in self.hubert_model.parameters():
+                            if param is not None:
+                                param.data = None
+                                if hasattr(param, 'grad') and param.grad is not None:
+                                    param.grad = None
+                    if hasattr(self.hubert_model, 'buffers'):
+                        for buffer in self.hubert_model.buffers():
+                            if buffer is not None:
+                                buffer.data = None
+                    # 모델 자체 삭제
+                    del self.hubert_model
+                    self.hubert_model = None
+                except Exception as e:
+                    logger.error(f"hubert_model 삭제 중 오류 발생: {e}", exc_info=True)
+                    self.hubert_model = None
+            
+            # 3. 체크포인트 삭제
+            if self.cpt is not None:
+                try:
+                    # 체크포인트 내부의 모든 텐서 삭제
+                    if isinstance(self.cpt, dict):
+                        for key in list(self.cpt.keys()):
+                            if isinstance(self.cpt[key], dict):
+                                for sub_key in list(self.cpt[key].keys()):
+                                    if isinstance(self.cpt[key][sub_key], torch.Tensor):
+                                        del self.cpt[key][sub_key]
+                            elif isinstance(self.cpt[key], torch.Tensor):
+                                del self.cpt[key]
+                    del self.cpt
+                    self.cpt = None
+                except Exception:
+                    self.cpt = None
+            
+            # 4. 기타 변수 정리
+            self.n_spk = None
+            self.tgt_sr = None
+            self.version = None
+            self.use_f0 = None
+            self.loaded_model = None
+            self.last_embedder_model = None
+            
+            # 5. GPU 메모리 최종 정리
+            if torch.cuda.is_available():
+                for _ in range(3):
+                    torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+            
+            # 6. 가비지 컬렉션 (여러 번 실행하여 확실히 정리)
+            import gc
+            for _ in range(3):
+                gc.collect()
+            
+        except Exception as e:
+            logger.error(f"모델 정리 중 오류 발생: {e}", exc_info=True)
+            # 예외가 발생해도 최대한 정리 시도
+            try:
+                if self.net_g is not None:
+                    del self.net_g
+                    self.net_g = None
+                if self.vc is not None:
+                    del self.vc
+                    self.vc = None
+                if self.hubert_model is not None:
+                    del self.hubert_model
+                    self.hubert_model = None
+                if self.cpt is not None:
+                    del self.cpt
+                    self.cpt = None
+                import gc
+                for _ in range(3):
+                    gc.collect()
+                if torch.cuda.is_available():
+                    for _ in range(3):
+                        torch.cuda.empty_cache()
+            except Exception:
+                pass
 
     def load_model(self, weight_root):
         """

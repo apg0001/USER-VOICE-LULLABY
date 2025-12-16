@@ -6,13 +6,12 @@ services:
     image: applio-fastapi:3.10 # 태그에 버전 명시
     ports:
       - "8000:8000"
-    # volumes:
-    #   - ./applio/logs:/app/applio/logs
-    #   - ./applio/output:/app/applio/output
+    volumes:
+      - ./app:/app/app
+      - ./applio/logs:/app/applio/logs
+      - ./applio/outputs:/app/applio/outputs
     runtime: nvidia
     shm_size: 2gb
-    tmpfs:
-      - /tmp:size=1gb
     environment:
       - PYTHON_VERSION=3.10
       - CUDA_VISIBLE_DEVICES=0
@@ -23,5 +22,4 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-      limit: 24G
     restart: unless-stopped

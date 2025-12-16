@@ -3,6 +3,7 @@ import sys
 import json
 import argparse
 import subprocess
+import logging
 from functools import lru_cache
 from distutils.util import strtobool
 
@@ -16,10 +17,11 @@ from rvc.lib.tools.prerequisites_download import prequisites_download_pipeline
 from rvc.train.process.model_blender import model_blender
 from rvc.train.process.model_information import model_information
 from rvc.lib.tools.analyzer import analyze_audio
-from rvc.lib.tools.launch_tensorboard import launch_tensorboard_pipeline
 from rvc.lib.tools.model_download import model_download_pipeline
 
 python = sys.executable
+
+logger = logging.getLogger(__name__)
 
 
 # Get TTS Voices -> https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list?trustedclienttoken=6A5AA1D4EAFF4E9FB37E23D68491D6F4
@@ -35,8 +37,11 @@ voices_data = load_voices_data()
 locales = list({voice["ShortName"] for voice in voices_data})
 
 
-@lru_cache(maxsize=None)
 def import_voice_converter():
+    """
+    VoiceConverter 인스턴스를 생성합니다.
+    캐싱을 제거하여 각 작업 후 메모리가 즉시 해제되도록 합니다.
+    """
     from rvc.infer.infer import VoiceConverter
 
     return VoiceConverter()
@@ -174,13 +179,55 @@ def run_infer_script(
         "delay_mix": delay_mix,
         "sid": sid,
     }
-    infer_pipeline = import_voice_converter()
-    infer_pipeline.convert_audio(
-        **kwargs,
-    )
-    return f"File {input_path} inferred successfully.", output_path.replace(
-        ".wav", f".{export_format.lower()}"
-    )
+    infer_pipeline = None
+    try:
+        infer_pipeline = import_voice_converter()
+        infer_pipeline.convert_audio(
+            **kwargs,
+        )
+        return f"File {input_path} inferred successfully.", output_path.replace(
+            ".wav", f".{export_format.lower()}"
+        )
+    finally:
+        # 작업 완료 후 VoiceConverter 인스턴스 정리
+        if infer_pipeline is not None:
+            # 모델 cleanup - 메모리 누수 방지를 위해 명시적으로 호출
+            try:
+                infer_pipeline.cleanup_model()
+            except Exception as e:
+                logger.error(f"모델 정리 중 오류 발생: {e}", exc_info=True)
+                # cleanup 실패해도 계속 진행
+                try:
+                    if hasattr(infer_pipeline, 'net_g') and infer_pipeline.net_g is not None:
+                        del infer_pipeline.net_g
+                    if hasattr(infer_pipeline, 'vc') and infer_pipeline.vc is not None:
+                        del infer_pipeline.vc
+                    if hasattr(infer_pipeline, 'hubert_model') and infer_pipeline.hubert_model is not None:
+                        del infer_pipeline.hubert_model
+                    if hasattr(infer_pipeline, 'cpt') and infer_pipeline.cpt is not None:
+                        del infer_pipeline.cpt
+                except Exception:
+                    pass
+            
+            # 인스턴스 삭제
+            try:
+                del infer_pipeline
+                infer_pipeline = None
+            except Exception:
+                pass
+        
+        # Python 가비지 컬렉션 강제 실행
+        import gc
+        gc.collect()
+        
+        # GPU 메모리 정리
+        try:
+            import torch
+            if torch.cuda.is_available():
+                for _ in range(3):
+                    torch.cuda.empty_cache()
+        except Exception:
+            pass
 
 
 # Batch infer
@@ -366,48 +413,71 @@ def run_tts_script(
         ),
     ]
     subprocess.run(command_tts)
-    infer_pipeline = import_voice_converter()
-    infer_pipeline.convert_audio(
-        pitch=pitch,
-        index_rate=index_rate,
-        volume_envelope=volume_envelope,
-        protect=protect,
-        f0_method=f0_method,
-        audio_input_path=output_tts_path,
-        audio_output_path=output_rvc_path,
-        model_path=pth_path,
-        index_path=index_path,
-        split_audio=split_audio,
-        f0_autotune=f0_autotune,
-        f0_autotune_strength=f0_autotune_strength,
-        proposed_pitch=proposed_pitch,
-        proposed_pitch_threshold=proposed_pitch_threshold,
-        clean_audio=clean_audio,
-        clean_strength=clean_strength,
-        export_format=export_format,
-        embedder_model=embedder_model,
-        embedder_model_custom=embedder_model_custom,
-        sid=sid,
-        formant_shifting=None,
-        formant_qfrency=None,
-        formant_timbre=None,
-        post_process=None,
-        reverb=None,
-        pitch_shift=None,
-        limiter=None,
-        gain=None,
-        distortion=None,
-        chorus=None,
-        bitcrush=None,
-        clipping=None,
-        compressor=None,
-        delay=None,
-        sliders=None,
-    )
-
-    return f"Text {tts_text} synthesized successfully.", output_rvc_path.replace(
-        ".wav", f".{export_format.lower()}"
-    )
+    infer_pipeline = None
+    try:
+        infer_pipeline = import_voice_converter()
+        infer_pipeline.convert_audio(
+            pitch=pitch,
+            index_rate=index_rate,
+            volume_envelope=volume_envelope,
+            protect=protect,
+            f0_method=f0_method,
+            audio_input_path=output_tts_path,
+            audio_output_path=output_rvc_path,
+            model_path=pth_path,
+            index_path=index_path,
+            split_audio=split_audio,
+            f0_autotune=f0_autotune,
+            f0_autotune_strength=f0_autotune_strength,
+            proposed_pitch=proposed_pitch,
+            proposed_pitch_threshold=proposed_pitch_threshold,
+            clean_audio=clean_audio,
+            clean_strength=clean_strength,
+            export_format=export_format,
+            embedder_model=embedder_model,
+            embedder_model_custom=embedder_model_custom,
+            sid=sid,
+            formant_shifting=None,
+            formant_qfrency=None,
+            formant_timbre=None,
+            post_process=None,
+            reverb=None,
+            pitch_shift=None,
+            limiter=None,
+            gain=None,
+            distortion=None,
+            chorus=None,
+            bitcrush=None,
+            clipping=None,
+            compressor=None,
+            delay=None,
+            sliders=None,
+        )
+        return f"Text {tts_text} synthesized successfully.", output_rvc_path.replace(
+            ".wav", f".{export_format.lower()}"
+        )
+    finally:
+        # 작업 완료 후 VoiceConverter 인스턴스 정리
+        if infer_pipeline is not None:
+            try:
+                infer_pipeline.cleanup_model()
+            except Exception as e:
+                logger.error(f"모델 정리 중 오류 발생: {e}", exc_info=True)
+            try:
+                del infer_pipeline
+                infer_pipeline = None
+            except Exception:
+                pass
+        # Python 가비지 컬렉션 강제 실행
+        import gc
+        gc.collect()
+        # GPU 메모리 정리
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
 
 
 # Preprocess
@@ -447,7 +517,7 @@ def run_preprocess_script(
             ],
         ),
     ]
-    subprocess.run(command)
+    result = subprocess.run(command, check=True)
     return f"Model {model_name} preprocessed successfully."
 
 
@@ -484,8 +554,7 @@ def run_extract_script(
         ),
     ]
 
-    subprocess.run(command_1)
-
+    result = subprocess.run(command_1, check=True)
     return f"Model {model_name} extracted successfully."
 
 
@@ -552,7 +621,7 @@ def run_train_script(
             ],
         ),
     ]
-    subprocess.run(command)
+    result = subprocess.run(command, check=True)
     run_index_script(model_name, index_algorithm)
     return f"Model {model_name} trained successfully."
 
@@ -569,7 +638,7 @@ def run_index_script(model_name: str, index_algorithm: str):
         index_algorithm,
     ]
 
-    subprocess.run(command)
+    result = subprocess.run(command, check=True)
     return f"Index file for {model_name} generated successfully."
 
 
@@ -587,9 +656,6 @@ def run_model_blender_script(
     return message, model_blended
 
 
-# Tensorboard
-def run_tensorboard_script():
-    launch_tensorboard_pipeline()
 
 
 # Download
@@ -2126,10 +2192,6 @@ def parse_arguments():
     )
 
     # Parser for 'tensorboard' mode
-    subparsers.add_parser(
-        "tensorboard", help="Launch TensorBoard for monitoring training progress."
-    )
-
     # Parser for 'download' mode
     download_parser = subparsers.add_parser(
         "download", help="Download a model from a provided link."
@@ -2396,8 +2458,6 @@ def main():
                 pth_path_2=args.pth_path_2,
                 ratio=args.ratio,
             )
-        elif args.mode == "tensorboard":
-            run_tensorboard_script()
         elif args.mode == "download":
             run_download_script(
                 model_link=args.model_link,

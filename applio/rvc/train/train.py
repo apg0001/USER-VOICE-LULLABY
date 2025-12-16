@@ -34,7 +34,7 @@ from utils import (
     latest_checkpoint_path,
     load_checkpoint,
     load_wav_to_torch,
-    plot_spectrogram_to_numpy,
+    # plot_spectrogram_to_numpy,
     save_checkpoint,
     summarize,
 )
@@ -179,8 +179,11 @@ def main():
 
     if torch.cuda.is_available():
         print("CUDA 사용 가능")
-        print("현재 사용되는 GPU 장치 이름:", torch.cuda.get_device_name(torch.cuda.current_device()))
-        
+        print(
+            "현재 사용되는 GPU 장치 이름:",
+            torch.cuda.get_device_name(torch.cuda.current_device()),
+        )
+
         device = torch.device("cuda")
         gpus = [int(item) for item in gpus.split("-")]
         n_gpus = len(gpus)
@@ -547,9 +550,13 @@ def run(
 
     cache = []
     # collect the reference audio for tensorboard evaluation
-    if os.path.isfile(os.path.join("applio", "logs", "reference", embedder_name, "feats.npy")):
+    if os.path.isfile(
+        os.path.join("applio", "logs", "reference", embedder_name, "feats.npy")
+    ):
         print("Using", embedder_name, "reference set for validation")
-        phone = np.load(os.path.join("applio", "logs", "reference", embedder_name, "feats.npy"))
+        phone = np.load(
+            os.path.join("applio", "logs", "reference", embedder_name, "feats.npy")
+        )
         # expanding x2 to match pitch size
         phone = np.repeat(phone, 2, axis=0)
         phone_lengths = torch.LongTensor([phone.shape[0]]).to(device)
@@ -876,11 +883,11 @@ def train_and_evaluate(
             "loss/g/kl": loss_kl,
         }
 
-        image_dict = {
-            "slice/mel_org": plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),
-            "slice/mel_gen": plot_spectrogram_to_numpy(y_hat_mel[0].data.cpu().numpy()),
-            "all/mel": plot_spectrogram_to_numpy(mel[0].data.cpu().numpy()),
-        }
+        # image_dict = {
+        #     "slice/mel_org": plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),
+        #     "slice/mel_gen": plot_spectrogram_to_numpy(y_hat_mel[0].data.cpu().numpy()),
+        #     "all/mel": plot_spectrogram_to_numpy(mel[0].data.cpu().numpy()),
+        # }
 
         if epoch % save_every_epoch == 0:
             with torch.amp.autocast(
@@ -892,21 +899,21 @@ def train_and_evaluate(
                     else:
                         o, *_ = net_g.infer(*reference)
             audio_dict = {f"gen/audio_{global_step:07d}": o[0, :, :]}
-            summarize(
-                writer=writer,
-                global_step=global_step,
-                images=image_dict,
-                scalars=scalar_dict,
-                audios=audio_dict,
-                audio_sample_rate=config.data.sample_rate,
-            )
-        else:
-            summarize(
-                writer=writer,
-                global_step=global_step,
-                images=image_dict,
-                scalars=scalar_dict,
-            )
+        #     summarize(
+        #         writer=writer,
+        #         global_step=global_step,
+        #         # images=image_dict,
+        #         scalars=scalar_dict,
+        #         audios=audio_dict,
+        #         audio_sample_rate=config.data.sample_rate,
+        #     )
+        # else:
+        #     summarize(
+        #         writer=writer,
+        #         global_step=global_step,
+        #         images=image_dict,
+        #         scalars=scalar_dict,
+        #     )
 
     # Save checkpoint
     model_add = []

@@ -39,12 +39,6 @@ applio/run-tensorboard.bat
 applio/assets/audios/
 applio/assets/datasets/
 
-# RVC models
-applio/rvc/models/embedders/*.pt
-applio/rvc/models/formant/*.pt
-applio/rvc/models/predictors/*.pt
-applio/rvc/models/pretrained/hifi-gan/*.pt
-
 # log
 logs/
 

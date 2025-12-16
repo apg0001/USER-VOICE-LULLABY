@@ -59,10 +59,12 @@ By using the official version of Applio, you accept full responsibility for comp
 
 ### 1. Installation
 
-Run the installation script based on your operating system:
+Install dependencies:
 
-- **Windows:** Double-click `run-install.bat`.
-- **Linux/macOS:** Execute `run-install.sh`.
+```bash
+pip install -r applio/requirements.txt
+pip install -r app/requirements.txt
+```
 
 ### 2. FastAPI Server (no GUI)
 
@@ -99,12 +101,6 @@ curl -X POST http://localhost:8000/inference \
       }'
 ```
 
-### 4. Optional: TensorBoard Monitoring
-
-To monitor training or visualize data:
-
-- **Windows:** Run `run-tensorboard.bat`.
-- **Linux/macOS:** Run `run-tensorboard.sh`.
 
 For more detailed instructions, visit the [documentation](https://docs.applio.org).
 

@@ -3,103 +3,34 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Cache-Control"
+      content="no-cache, no-store, must-revalidate"
+    />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>Applio API Console</title>
-    <style>
-      :root {
-        color-scheme: dark;
-        font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
-        background-color: #0b0d12;
-        color: #f7f8fc;
-      }
-      body {
-        margin: 0;
-        padding: 2rem;
-      }
-      h1,
-      h2 {
-        margin-top: 0;
-      }
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-        gap: 1.5rem;
-      }
-      form {
-        background: #141820;
-        border: 1px solid #1f2532;
-        border-radius: 12px;
-        padding: 1.5rem;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
-      }
-      label {
-        display: flex;
-        flex-direction: column;
-        font-size: 0.9rem;
-        gap: 0.4rem;
-        margin-bottom: 1rem;
-      }
-      input {
-        padding: 0.6rem 0.8rem;
-        border-radius: 8px;
-        border: 1px solid #2c3547;
-        background: #0b0f16;
-        color: inherit;
-      }
-      button {
-        border: none;
-        border-radius: 8px;
-        padding: 0.65rem 1rem;
-        font-size: 0.95rem;
-        cursor: pointer;
-        background: linear-gradient(120deg, #6366f1, #14b8a6);
-        color: white;
-      }
-      .result {
-        background: #0f131b;
-        border-radius: 10px;
-        padding: 1rem;
-        font-family: "JetBrains Mono", "Fira Code", monospace;
-        font-size: 0.85rem;
-        overflow-x: auto;
-        border: 1px solid #202635;
-        min-height: 80px;
-        white-space: pre-wrap;
-      }
-      .health {
-        margin-bottom: 2rem;
-        display: flex;
-        gap: 1rem;
-        align-items: center;
-      }
-      .health button {
-        flex-shrink: 0;
-      }
-    </style>
+    <link rel="stylesheet" href="/static/styles.css?v=1" />
   </head>
   <body>
-    <header>
+    <header class="header">
       <h1>Applio FastAPI Console</h1>
       <p>REST API를 바로 호출할 수 있는 최소한의 정적 페이지입니다.</p>
     </header>
 
     <section class="health">
-      <button id="health-btn">/ 헬스체크</button>
+      <div class="quick-actions">
+        <button id="health-btn">헬스체크</button>
+        <button id="models-btn">모델 리스트</button>
+        <button id="outputs-btn">추론 결과</button>
+      </div>
       <div id="health-result" class="result">클릭하여 상태 확인</div>
     </section>
 
     <div class="grid">
       <section>
-        <h2>Train API (파일 업로드)</h2>
+        <h2>학습 (Train)</h2>
         <form id="train-upload-form" enctype="multipart/form-data">
-          <label>
-            모델 이름 (logs에 저장)
-            <input
-              name="model_name"
-              placeholder="my_rvc_model"
-              required
-              autocomplete="off"
-            />
-          </label>
           <label>
             샘플레이트 (선택)
             <input
@@ -129,6 +60,84 @@
               max="32"
               placeholder="기본 4"
             />
+          </label>
+          <label>
+            Embedder Model (선택)
+            <input
+              name="embedder_model"
+              placeholder="contentvec 또는 spin-v2 (기본: contentvec)"
+              autocomplete="off"
+            />
+          </label>
+          <label>
+            Vocoder (선택)
+            <input
+              name="vocoder"
+              placeholder="HiFi-GAN (기본: HiFi-GAN)"
+              autocomplete="off"
+            />
+          </label>
+          <label>
+            Overtraining Detector (선택)
+            <select name="overtraining_detector">
+              <option value="">기본값 사용</option>
+              <option value="true">활성화</option>
+              <option value="false">비활성화</option>
+            </select>
+          </label>
+          <label>
+            Custom Pretrained (선택)
+            <select name="custom_pretrained" id="custom-pretrained-select">
+              <option value="">기본값 사용 (false)</option>
+              <option value="true">활성화</option>
+              <option value="false">비활성화</option>
+            </select>
+          </label>
+          <div id="pretrained-model-group" style="display: none">
+            <div class="model-select-group">
+              <label>
+                G Pretrained Model (선택)
+                <select name="g_pretrained_select" id="g-pretrained-select">
+                  <option value="">모델을 선택하세요</option>
+                </select>
+              </label>
+              <label>
+                G Pretrained Path (선택, 직접 입력)
+                <input
+                  name="g_pretrained_path"
+                  id="g-pretrained-path-input"
+                  placeholder="G 모델 사전 학습 경로"
+                  autocomplete="off"
+                />
+              </label>
+            </div>
+            <div class="model-select-group">
+              <label>
+                D Pretrained Model (선택)
+                <select name="d_pretrained_select" id="d-pretrained-select">
+                  <option value="">모델을 선택하세요</option>
+                </select>
+              </label>
+              <label>
+                D Pretrained Path (선택, 직접 입력)
+                <input
+                  name="d_pretrained_path"
+                  id="d-pretrained-path-input"
+                  placeholder="D 모델 사전 학습 경로"
+                  autocomplete="off"
+                />
+              </label>
+            </div>
+          </div>
+          <label>
+            모델 설명 (선택)
+            <textarea
+              name="model_description"
+              id="model-description-input"
+              placeholder="모델에 대한 설명을 입력하세요"
+              rows="3"
+              style="width: 100%; resize: vertical"
+            ></textarea>
           </label>
           <label>
             학습용 음성 파일들 (mp3/wav, 다중 선택 가능)
@@ -142,66 +151,10 @@
           </label>
           <button type="submit">파일로 학습 시작</button>
         </form>
-        <div id="train-upload-result" class="result"></div>
-      </section>
-      <section>
-        <h2>Train API</h2>
-        <form id="train-form">
-          <label>
-            모델 이름 (logs에 저장)
-            <input
-              name="model_name"
-              placeholder="my_rvc_model"
-              required
-              autocomplete="off"
-            />
-          </label>
-          <label>
-            데이터셋 경로
-            <input
-              name="dataset_path"
-              placeholder="datasets/my_dataset"
-              required
-              autocomplete="off"
-            />
-          </label>
-          <label>
-            샘플레이트 (선택)
-            <input
-              name="sample_rate"
-              type="number"
-              min="16000"
-              max="48000"
-              placeholder="기본 40000"
-            />
-          </label>
-          <label>
-            총 Epoch (선택)
-            <input
-              name="total_epoch"
-              type="number"
-              min="1"
-              max="1000"
-              placeholder="기본 200"
-            />
-          </label>
-          <label>
-            배치 크기 (선택)
-            <input
-              name="batch_size"
-              type="number"
-              min="1"
-              max="32"
-              placeholder="기본 4"
-            />
-          </label>
-          <button type="submit">학습 시작</button>
-        </form>
-        <div id="train-result" class="result"></div>
       </section>
 
       <section>
-        <h2>Inference API (파일 업로드)</h2>
+        <h2>추론 (Inference)</h2>
         <form id="inference-upload-form" enctype="multipart/form-data">
           <label>
             입력 오디오 파일
@@ -212,71 +165,250 @@
               required
             />
           </label>
+          <div class="model-select-group">
+            <label>
+              모델 선택
+              <select name="model_select" id="model-select" required>
+                <option value="">모델을 선택하세요</option>
+              </select>
+            </label>
+            <label>
+              모델 파일 (.pth)
+              <input
+                name="model_path"
+                id="model-path-input"
+                placeholder="자동 선택 또는 직접 입력"
+                autocomplete="off"
+              />
+            </label>
+          </div>
+          <div class="model-select-group">
+            <label>
+              인덱스 파일 선택
+              <select name="index_select" id="index-select">
+                <option value="">인덱스 파일 없음</option>
+              </select>
+            </label>
+            <label>
+              인덱스 경로 (.index, 선택)
+              <input
+                name="index_path"
+                id="index-path-input"
+                placeholder="자동 선택 또는 직접 입력"
+                autocomplete="off"
+              />
+            </label>
+          </div>
           <label>
-            모델 (.pth) 경로
-            <input
-              name="model_path"
-              placeholder="logs/my_model/G_20000.pth"
-              required
-              autocomplete="off"
-            />
-          </label>
-          <label>
-            인덱스 경로 (.index, 선택)
-            <input
-              name="index_path"
-              placeholder="logs/my_model/added_IVF.index"
-              autocomplete="off"
-            />
-          </label>
-          <label>
-            출력 디렉토리
+            출력 디렉토리 (선택)
             <input name="output_dir" placeholder="outputs" />
+          </label>
+          <label>
+            Pitch (피치 조절, 선택)
+            <input
+              name="pitch"
+              type="number"
+              min="-24"
+              max="24"
+              step="1"
+              placeholder="기본 0 (반음 단위, -24~24)"
+              title="피치 조절 값 (반음 단위). 0이 아닌 경우 보컬과 배경 음원 모두 동일하게 피치가 조절됩니다."
+            />
+          </label>
+          <label>
+            Volume Envelope (선택)
+            <input
+              name="volume_envelope"
+              type="number"
+              step="0.1"
+              placeholder="기본 1.0"
+            />
+          </label>
+          <label>
+            Protect (선택)
+            <input
+              name="protect"
+              type="number"
+              step="0.1"
+              placeholder="기본 0.5"
+            />
+          </label>
+          <label>
+            F0 Autotune (선택)
+            <input name="f0_autotune" type="checkbox" />
+          </label>
+          <label>
+            F0 Autotune Strength (선택, F0 Autotune 활성화 시)
+            <input
+              name="f0_autotune_strength"
+              type="number"
+              step="0.1"
+              min="0"
+              max="2"
+              placeholder="기본 1.0"
+            />
+          </label>
+          <label>
+            Index Rate (선택)
+            <input
+              name="index_rate"
+              type="number"
+              step="0.01"
+              min="0"
+              max="1"
+              placeholder="기본 0.75"
+            />
+          </label>
+          <label>
+            Clean Audio (선택)
+            <input name="clean_audio" type="checkbox" />
+          </label>
+          <label>
+            Clean Strength (선택)
+            <input
+              name="clean_strength"
+              type="number"
+              step="0.1"
+              min="0"
+              max="1"
+              placeholder="기본 0.5"
+            />
+          </label>
+          <label>
+            Reverb (선택)
+            <input name="reverb" type="checkbox" />
+          </label>
+          <div id="reverb-params" style="display: none; margin-left: 1rem">
+            <label>
+              Reverb Room Size (선택)
+              <input
+                name="reverb_room_size"
+                type="number"
+                step="0.1"
+                min="0"
+                max="1"
+                placeholder="기본 0.5"
+              />
+            </label>
+            <label>
+              Reverb Damping (선택)
+              <input
+                name="reverb_damping"
+                type="number"
+                step="0.1"
+                min="0"
+                max="1"
+                placeholder="기본 0.5"
+              />
+            </label>
+            <label>
+              Reverb Wet Gain (선택)
+              <input
+                name="reverb_wet_gain"
+                type="number"
+                step="0.1"
+                min="0"
+                max="1"
+                placeholder="기본 0.5"
+              />
+            </label>
+            <label>
+              Reverb Dry Gain (선택)
+              <input
+                name="reverb_dry_gain"
+                type="number"
+                step="0.1"
+                min="0"
+                max="1"
+                placeholder="기본 0.5"
+              />
+            </label>
+            <label>
+              Reverb Width (선택)
+              <input
+                name="reverb_width"
+                type="number"
+                step="0.1"
+                min="0"
+                max="1"
+                placeholder="기본 0.5"
+              />
+            </label>
+            <label>
+              Reverb Freeze Mode (선택)
+              <input
+                name="reverb_freeze_mode"
+                type="number"
+                step="0.1"
+                min="0"
+                max="1"
+                placeholder="기본 0.5"
+              />
+            </label>
+          </div>
+          <label>
+            Embedder Model (선택)
+            <input
+              name="embedder_model"
+              placeholder="contentvec 또는 spin-v2 (기본: contentvec)"
+              autocomplete="off"
+            />
           </label>
           <button type="submit">파일로 추론 실행</button>
         </form>
-        <div id="inference-upload-result" class="result"></div>
-      </section>
-      <section>
-        <h2>Inference API</h2>
-        <form id="inference-form">
-          <label>
-            입력 오디오 경로
-            <input
-              name="input_audio_path"
-              placeholder="test/input.wav"
-              required
-              autocomplete="off"
-            />
-          </label>
-          <label>
-            모델 (.pth) 경로
-            <input
-              name="model_path"
-              placeholder="logs/my_model/G_20000.pth"
-              required
-              autocomplete="off"
-            />
-          </label>
-          <label>
-            인덱스 경로 (.index, 선택)
-            <input
-              name="index_path"
-              placeholder="logs/my_model/added_IVF.index"
-              autocomplete="off"
-            />
-          </label>
-          <label>
-            출력 디렉토리
-            <input name="output_dir" placeholder="outputs" />
-          </label>
-          <button type="submit">추론 실행</button>
-        </form>
-        <div id="inference-result" class="result"></div>
       </section>
     </div>
 
-    <script type="module" src="/static/main.js"></script>
+    <section class="job-status">
+      <h3>작업 상태 조회</h3>
+      <div
+        style="
+          display: flex;
+          gap: 1rem;
+          align-items: center;
+          margin-bottom: 1rem;
+        "
+      >
+        <label style="margin: 0">
+          큐 선택
+          <select name="queue_name" id="queue-select" required>
+            <option value="train">train</option>
+            <option value="inference">inference</option>
+          </select>
+        </label>
+        <button id="jobs-refresh-btn" style="margin: 0">새로고침</button>
+        <div class="auto-refresh" style="margin: 0">
+          <input type="checkbox" id="auto-refresh-checkbox" />
+          <label for="auto-refresh-checkbox" style="margin: 0; cursor: pointer">
+            자동 새로고침 (5초마다)
+          </label>
+        </div>
+      </div>
+      <div id="jobs-list-container">
+        <div class="empty-state">큐를 선택하고 새로고침 버튼을 클릭하세요</div>
+      </div>
+    </section>
+
+    <section class="job-status">
+      <h3>모델 관리</h3>
+      <button id="models-refresh-btn" style="margin-bottom: 1rem">
+        새로고침
+      </button>
+      <div id="models-list-container">
+        <div class="empty-state">모델 리스트 조회 버튼을 클릭하세요</div>
+      </div>
+    </section>
+
+    <section class="job-status">
+      <h3>추론 결과 관리</h3>
+      <button id="outputs-refresh-btn" style="margin-bottom: 1rem">
+        새로고침
+      </button>
+      <div id="outputs-list-container">
+        <div class="empty-state">추론 결과 조회 버튼을 클릭하세요</div>
+      </div>
+    </section>
+
+    <script type="module" src="/static/main.js?v=1"></script>
   </body>
 </html>
-

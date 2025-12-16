@@ -220,30 +220,35 @@ class Pipeline:
             proposed_pitch: whether to apply proposed pitch adjustment
             proposed_pitch_threshold: target frequency, 155.0 for male, 255.0 for female
         """
-        if f0_method == "crepe":
-            model = CREPE(
-                device=self.device, sample_rate=self.sample_rate, hop_size=self.window
-            )
-            f0 = model.get_f0(x, self.f0_min, self.f0_max, p_len, "full")
-            del model
-        elif f0_method == "crepe-tiny":
-            model = CREPE(
-                device=self.device, sample_rate=self.sample_rate, hop_size=self.window
-            )
-            f0 = model.get_f0(x, self.f0_min, self.f0_max, p_len, "tiny")
-            del model
-        elif f0_method == "rmvpe":
-            model = RMVPE(
-                device=self.device, sample_rate=self.sample_rate, hop_size=self.window
-            )
-            f0 = model.get_f0(x, filter_radius=0.03)
-            del model
-        elif f0_method == "fcpe":
-            model = FCPE(
-                device=self.device, sample_rate=self.sample_rate, hop_size=self.window
-            )
-            f0 = model.get_f0(x, p_len, filter_radius=0.006)
-            del model
+        model = None
+        try:
+            if f0_method == "crepe":
+                model = CREPE(
+                    device=self.device, sample_rate=self.sample_rate, hop_size=self.window
+                )
+                f0 = model.get_f0(x, self.f0_min, self.f0_max, p_len, "full")
+            elif f0_method == "crepe-tiny":
+                model = CREPE(
+                    device=self.device, sample_rate=self.sample_rate, hop_size=self.window
+                )
+                f0 = model.get_f0(x, self.f0_min, self.f0_max, p_len, "tiny")
+            elif f0_method == "rmvpe":
+                model = RMVPE(
+                    device=self.device, sample_rate=self.sample_rate, hop_size=self.window
+                )
+                f0 = model.get_f0(x, filter_radius=0.03)
+            elif f0_method == "fcpe":
+                model = FCPE(
+                    device=self.device, sample_rate=self.sample_rate, hop_size=self.window
+                )
+                f0 = model.get_f0(x, p_len, filter_radius=0.006)
+        finally:
+            # 모델 삭제 및 GPU 메모리 정리
+            if model is not None:
+                del model
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
 
         # f0 adjustments
         if f0_autotune is True:
@@ -427,14 +432,18 @@ class Pipeline:
             hop_length: Hop length for F0 estimation methods.
             f0_autotune: Whether to apply autotune to the F0 contour.
         """
-        if file_index != "" and os.path.exists(file_index) and index_rate > 0:
-            try:
-                index = faiss.read_index(file_index)
-                big_npy = index.reconstruct_n(0, index.ntotal)
-            except Exception as error:
-                print(f"An error occurred reading the FAISS index: {error}")
-                index = big_npy = None
-        else:
+        index = None
+        big_npy = None
+        try:
+            if file_index != "" and os.path.exists(file_index) and index_rate > 0:
+                try:
+                    index = faiss.read_index(file_index)
+                    big_npy = index.reconstruct_n(0, index.ntotal)
+                except Exception as error:
+                    print(f"An error occurred reading the FAISS index: {error}")
+                    index = big_npy = None
+        except Exception:
+            # 인덱스 로드 실패 시 None으로 설정
             index = big_npy = None
         audio = signal.filtfilt(bh, ah, audio)
         audio_pad = np.pad(audio, (self.window // 2, self.window // 2), mode="reflect")
@@ -550,9 +559,21 @@ class Pipeline:
         audio_max = np.abs(audio_opt).max() / 0.99
         if audio_max > 1:
             audio_opt /= audio_max
+        
+        # 메모리 정리: pitch, pitchf, sid 해제
         if pitch_guidance:
             del pitch, pitchf
         del sid
+        
+        # FAISS 인덱스 및 big_npy 명시적 해제
+        if index is not None:
+            del index
+        if big_npy is not None:
+            del big_npy
+        
+        # GPU 메모리 정리
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+        gc.collect()
+        
         return audio_opt

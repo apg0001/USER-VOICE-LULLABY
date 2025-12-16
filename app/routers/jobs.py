@@ -1,0 +1,228 @@
+"""작업 상태 조회 라우터"""
+import re
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from ..constants import RVC_LOGS_DIR
+from ..dependencies import get_inference_queue, get_train_queue
+from ..models.responses import JobStatusResponse
+from ..task_queue import AsyncJobQueue
+
+router = APIRouter()
+
+
+def _get_training_progress(job, queue_name: str) -> dict | None:
+    """학습 작업의 진행률을 계산합니다."""
+    # 학습 큐가 아니거나 실행 중이 아닌 경우 진행률 계산 안 함
+    if queue_name != "train":
+        return None
+    
+    # running 상태가 아니면 진행률 계산 안 함 (단, pending 상태는 0%로 표시 가능)
+    if job.status.value not in ("running", "pending"):
+        return None
+    
+    # job.metadata에서 model_name과 total_epoch 확인
+    model_name = job.metadata.get("model_name")
+    total_epoch = job.metadata.get("total_epoch")
+    
+    if not model_name or not total_epoch:
+        return None
+    
+    try:
+        model_dir = RVC_LOGS_DIR / model_name
+        if not model_dir.exists():
+            return None
+        
+        # best_epoch 파일 찾기 (*_best_epoch.pth)
+        best_epoch_files = list(model_dir.glob("*_best_epoch.pth"))
+        
+        current_epoch = 0
+        
+        if best_epoch_files:
+            # best_epoch 파일이 있으면 파일명에서 epoch 추출
+            # 예: model_name_20e_900s_best_epoch.pth -> 20
+            latest_best_epoch = sorted(
+                best_epoch_files,
+                key=lambda f: f.stat().st_mtime,
+                reverse=True
+            )[0]
+            
+            filename = latest_best_epoch.name
+            # 파일명에서 epoch 추출 (예: model_name_20e_900s_best_epoch.pth)
+            epoch_match = re.search(r'(\d+)e', filename)
+            if epoch_match:
+                current_epoch = int(epoch_match.group(1))
+        else:
+            # best_epoch 파일이 없으면 G_*.pth 파일에서 시도
+            checkpoint_files = sorted(
+                model_dir.glob("G_*.pth"),
+                key=lambda f: f.stat().st_mtime,
+                reverse=True
+            )
+            
+            if not checkpoint_files:
+                # 체크포인트 파일이 없으면 0%로 표시
+                return {"current_epoch": 0, "total_epoch": total_epoch, "progress_percent": 0.0}
+            
+            latest_checkpoint = checkpoint_files[0]
+            
+            # 체크포인트 파일을 로드하여 epoch 확인
+            try:
+                import torch
+                checkpoint = torch.load(str(latest_checkpoint), map_location="cpu", weights_only=True)
+                # checkpoint의 iteration이 epoch일 수 있음
+                if "iteration" in checkpoint:
+                    current_epoch = checkpoint.get("iteration", 0)
+            except Exception:
+                # 체크포인트 로드 실패 시 파일명에서 추출 시도
+                filename = latest_checkpoint.name
+                epoch_match = re.search(r'(\d+)e', filename)
+                if epoch_match:
+                    current_epoch = int(epoch_match.group(1))
+                else:
+                    current_epoch = 0
+        
+        # total_epoch와 비교하여 진행률 계산
+        progress_percent = min((current_epoch / total_epoch * 100) if total_epoch > 0 else 0, 100.0)
+        
+        return {
+            "current_epoch": current_epoch,
+            "total_epoch": total_epoch,
+            "progress_percent": round(progress_percent, 2),
+        }
+    except Exception:
+        return None
+
+
+@router.get("/jobs/{queue_name}", response_model=list[JobStatusResponse])
+async def list_jobs(
+    queue_name: str,
+    train_queue: AsyncJobQueue = Depends(get_train_queue),
+    inference_queue: AsyncJobQueue = Depends(get_inference_queue),
+) -> list[JobStatusResponse]:
+    """큐에 있는 모든 작업 리스트를 조회합니다."""
+    queue = None
+    if queue_name == "train":
+        queue = train_queue
+    elif queue_name == "inference":
+        queue = inference_queue
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown queue: {queue_name}")
+    
+    all_jobs = queue.list_all_jobs()
+    results = []
+    
+    for job_data in all_jobs:
+        # 학습 작업의 경우 진행률 계산 및 모델 정보 추출
+        job = queue.get_job_status(job_data["job_id"])
+        progress = None
+        model_id = None
+        model_description = None
+        
+        if job:
+            progress = _get_training_progress(job, queue_name)
+            # 학습 작업의 경우 메타데이터에서 모델 ID와 설명 추출
+            if queue_name == "train" and job.metadata:
+                model_id = job.metadata.get("model_id")
+                model_description = job.metadata.get("model_description")
+        
+        job_data["progress"] = progress
+        job_data["model_id"] = model_id
+        job_data["model_description"] = model_description
+        results.append(JobStatusResponse(**job_data))
+    
+    return results
+
+
+@router.get("/jobs/{queue_name}/{job_id}", response_model=JobStatusResponse)
+async def get_job_status(
+    queue_name: str,
+    job_id: str,
+    train_queue: AsyncJobQueue = Depends(get_train_queue),
+    inference_queue: AsyncJobQueue = Depends(get_inference_queue),
+) -> JobStatusResponse:
+    """특정 작업 상태를 조회합니다."""
+    queue = None
+    if queue_name == "train":
+        queue = train_queue
+    elif queue_name == "inference":
+        queue = inference_queue
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown queue: {queue_name}")
+    
+    result = queue.get_job_result(job_id)
+    if "error" in result and result["error"] == "Job not found":
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    # 학습 작업의 경우 진행률 계산 및 모델 정보 추출
+    job = queue.get_job_status(job_id)
+    progress = None
+    model_id = None
+    model_description = None
+    
+    if job:
+        if queue_name == "train":
+            progress = _get_training_progress(job, queue_name)
+            # 메타데이터에서 모델 ID와 설명 추출
+            if job.metadata:
+                model_id = job.metadata.get("model_id")
+                model_description = job.metadata.get("model_description")
+    
+    result["progress"] = progress
+    result["model_id"] = model_id
+    result["model_description"] = model_description
+    
+    return JobStatusResponse(**result)
+
+
+@router.delete("/jobs/{queue_name}/{job_id}")
+async def cancel_job(
+    queue_name: str,
+    job_id: str,
+    train_queue: AsyncJobQueue = Depends(get_train_queue),
+    inference_queue: AsyncJobQueue = Depends(get_inference_queue),
+):
+    """작업을 취소합니다."""
+    from ..logging_config import get_logger
+    logger = get_logger(__name__)
+    
+    logger.info(f"작업 취소 요청 | queue={queue_name} | job_id={job_id}")
+    
+    queue = None
+    if queue_name == "train":
+        queue = train_queue
+    elif queue_name == "inference":
+        queue = inference_queue
+    else:
+        logger.error(f"알 수 없는 큐 이름 | queue_name={queue_name}")
+        raise HTTPException(status_code=400, detail=f"Unknown queue: {queue_name}")
+    
+    try:
+        # 작업 상태 확인
+        job = queue.get_job_status(job_id)
+        if not job:
+            logger.warning(f"작업을 찾을 수 없음 | queue={queue_name} | job_id={job_id}")
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        logger.debug(f"작업 상태 확인 | queue={queue_name} | job_id={job_id} | status={job.status.value}")
+        
+        success = queue.cancel_job(job_id)
+        if not success:
+            logger.warning(
+                f"작업 취소 실패 | queue={queue_name} | job_id={job_id} | "
+                f"status={job.status.value} | reason=이미 완료되었거나 취소할 수 없는 상태"
+            )
+            raise HTTPException(
+                status_code=400, 
+                detail="Job cannot be cancelled (job may be already completed, failed, or cancelled)"
+            )
+        
+        logger.info(f"작업 취소 성공 | queue={queue_name} | job_id={job_id} | status={job.status.value}")
+        return {"status": "cancelled", "job_id": job_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"작업 취소 중 오류 | queue={queue_name} | job_id={job_id} | error={e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"작업 취소 중 오류 발생: {str(e)}")
+

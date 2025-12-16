@@ -42,7 +42,10 @@ class TrainingDefaults:
     cleanup: bool = False
     cache_data_in_gpu: bool = False
     index_algorithm: str = "Auto"
-    vocoder: str = "MRF HiFi-GAN"
+    custom_pretrained: bool = False
+    g_pretrained_path: str = None
+    d_pretrained_path: str = None
+    vocoder: str = "HiFi-GAN"
     checkpointing: bool = False
 
 
@@ -84,7 +87,17 @@ class InferenceDefaults:
     formant_qfrency: float = 1.0
     formant_timbre: float = 1.0
     post_process: bool = False
+    reverb: bool = False
+    reverb_room_size: float = 0.5
+    reverb_damping: float = 0.5
+    reverb_wet_gain: float = 0.5
+    reverb_dry_gain: float = 0.5
+    reverb_width: float = 0.5
+    reverb_freeze_mode: float = 0.5
 
 
 TRAINING_DEFAULTS = TrainingDefaults()
 INFERENCE_DEFAULTS = InferenceDefaults()
+
+# 큐 작업 내역 보관 기간 (일)
+JOB_RETENTION_DAYS = int(os.getenv("JOB_RETENTION_DAYS", "7"))  # 기본값: 7일

@@ -168,30 +168,30 @@ def latest_checkpoint_path(dir_path, regex="G_*.pth"):
     return checkpoints[-1] if checkpoints else None
 
 
-def plot_spectrogram_to_numpy(spectrogram):
-    """
-    Convert a spectrogram to a NumPy array for visualization.
+# def plot_spectrogram_to_numpy(spectrogram):
+#     """
+#     Convert a spectrogram to a NumPy array for visualization.
 
-    Args:
-        spectrogram (numpy.ndarray): The spectrogram to plot.
-    """
-    global MATPLOTLIB_FLAG
-    if not MATPLOTLIB_FLAG:
-        plt.switch_backend("Agg")
-        MATPLOTLIB_FLAG = True
+#     Args:
+#         spectrogram (numpy.ndarray): The spectrogram to plot.
+#     """
+#     global MATPLOTLIB_FLAG
+#     if not MATPLOTLIB_FLAG:
+#         plt.switch_backend("Agg")
+#         MATPLOTLIB_FLAG = True
 
-    fig, ax = plt.subplots(figsize=(10, 2))
-    im = ax.imshow(spectrogram, aspect="auto", origin="lower", interpolation="none")
-    plt.colorbar(im, ax=ax)
-    plt.xlabel("Frames")
-    plt.ylabel("Channels")
-    plt.tight_layout()
+#     fig, ax = plt.subplots(figsize=(10, 2))
+#     im = ax.imshow(spectrogram, aspect="auto", origin="lower", interpolation="none")
+#     plt.colorbar(im, ax=ax)
+#     plt.xlabel("Frames")
+#     plt.ylabel("Channels")
+#     plt.tight_layout()
 
-    fig.canvas.draw()
-    data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-    data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-    plt.close(fig)
-    return data
+#     fig.canvas.draw()
+#     data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+#     data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+#     plt.close(fig)
+#     return data
 
 
 def load_wav_to_torch(full_path):
