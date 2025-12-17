@@ -25,6 +25,173 @@ async def list_models(
     return model_service.list_models()
 
 
+@router.get("/pretrained-models")
+async def list_pretrained_models():
+    """사전 학습 모델 리스트를 조회합니다."""
+    from pathlib import Path
+    from ..constants import RVC_ROOT
+    import re
+    
+    pretraineds_dir = RVC_ROOT / "rvc" / "models" / "pretraineds"
+    pretrained_models = {
+        "hifi-gan": [],
+        "custom": []
+    }
+    
+    # HiFi-GAN 사전 학습 모델 (기본)
+    hifigan_dir = pretraineds_dir / "hifi-gan"
+    if hifigan_dir.exists():
+        for pth_file in hifigan_dir.glob("*.pth"):
+            file_name = pth_file.name
+            file_path = str(pth_file.resolve())
+            if file_name.startswith("f0G"):
+                pretrained_models["hifi-gan"].append({
+                    "name": file_name,
+                    "path": file_path,
+                    "type": "G",
+                    "sample_rate": _extract_sample_rate(file_name)
+                })
+            elif file_name.startswith("f0D"):
+                pretrained_models["hifi-gan"].append({
+                    "name": file_name,
+                    "path": file_path,
+                    "type": "D",
+                    "sample_rate": _extract_sample_rate(file_name)
+                })
+    
+    # 커스텀 사전 학습 모델 (custom 디렉토리에서 직접 스캔)
+    custom_dir = pretraineds_dir / "custom"
+    if custom_dir.exists():
+        for pth_file in custom_dir.rglob("*.pth"):
+            file_name = pth_file.name
+            file_path = str(pth_file.resolve())
+            if file_name.startswith("G_") or file_name.startswith("G-"):
+                pretrained_models["custom"].append({
+                    "name": file_name,
+                    "path": file_path,
+                    "type": "G",
+                    "sample_rate": _extract_sample_rate(file_name)
+                })
+            elif file_name.startswith("D_") or file_name.startswith("D-"):
+                pretrained_models["custom"].append({
+                    "name": file_name,
+                    "path": file_path,
+                    "type": "D",
+                    "sample_rate": _extract_sample_rate(file_name)
+                })
+    
+    return pretrained_models
+
+
+def _extract_sample_rate(filename: str) -> str:
+    """파일명에서 샘플레이트 추출 (예: f0G32k.pth -> 32k)"""
+    import re
+    match = re.search(r'(\d+)k', filename, re.IGNORECASE)
+    if match:
+        return f"{match.group(1)}k"
+    return "unknown"
+
+
+@router.get("/pretrained-models")
+async def list_pretrained_models():
+    """사전 학습 모델 리스트를 조회합니다."""
+    from pathlib import Path
+    from ..constants import RVC_ROOT, RVC_LOGS_DIR
+    
+    pretrained_models = {
+        "hifi-gan": [],
+        "custom": [],
+        "logs": []  # logs 폴더의 사전 학습 모델
+    }
+    
+    # 1. HiFi-GAN 사전 학습 모델 (기본)
+    pretraineds_dir = RVC_ROOT / "rvc" / "models" / "pretraineds"
+    hifigan_dir = pretraineds_dir / "hifi-gan"
+    if hifigan_dir.exists():
+        for pth_file in hifigan_dir.glob("*.pth"):
+            file_name = pth_file.name
+            file_path = str(pth_file.resolve())
+            if file_name.startswith("f0G"):
+                pretrained_models["hifi-gan"].append({
+                    "name": file_name,
+                    "path": file_path,
+                    "type": "G",
+                    "sample_rate": _extract_sample_rate(file_name)
+                })
+            elif file_name.startswith("f0D"):
+                pretrained_models["hifi-gan"].append({
+                    "name": file_name,
+                    "path": file_path,
+                    "type": "D",
+                    "sample_rate": _extract_sample_rate(file_name)
+                })
+    
+    # 2. 커스텀 사전 학습 모델 (custom 디렉토리에서 직접 스캔)
+    custom_dir = pretraineds_dir / "custom"
+    if custom_dir.exists():
+        for pth_file in custom_dir.rglob("*.pth"):
+            file_name = pth_file.name
+            file_path = str(pth_file.resolve())
+            if file_name.startswith("G_") or file_name.startswith("G-"):
+                pretrained_models["custom"].append({
+                    "name": file_name,
+                    "path": file_path,
+                    "type": "G",
+                    "sample_rate": _extract_sample_rate(file_name)
+                })
+            elif file_name.startswith("D_") or file_name.startswith("D-"):
+                pretrained_models["custom"].append({
+                    "name": file_name,
+                    "path": file_path,
+                    "type": "D",
+                    "sample_rate": _extract_sample_rate(file_name)
+                })
+    
+    # 3. logs 폴더의 사전 학습 모델 (KLM 등)
+    if RVC_LOGS_DIR.exists():
+        for model_dir in RVC_LOGS_DIR.iterdir():
+            if not model_dir.is_dir():
+                continue
+            
+            # 보호된 디렉토리 제외
+            from ..repositories.model_repository import PROTECTED_DIRS
+            if model_dir.name in PROTECTED_DIRS:
+                continue
+            
+            # logs 폴더 내의 모든 .pth 파일 스캔
+            for pth_file in model_dir.glob("*.pth"):
+                file_name = pth_file.name
+                file_path = str(pth_file.resolve())
+                # G_ 또는 D_로 시작하는 파일만 사전 학습 모델로 간주
+                if file_name.startswith("G_") or file_name.startswith("G-"):
+                    pretrained_models["logs"].append({
+                        "name": file_name,
+                        "path": file_path,
+                        "type": "G",
+                        "sample_rate": _extract_sample_rate(file_name),
+                        "model_id": model_dir.name
+                    })
+                elif file_name.startswith("D_") or file_name.startswith("D-"):
+                    pretrained_models["logs"].append({
+                        "name": file_name,
+                        "path": file_path,
+                        "type": "D",
+                        "sample_rate": _extract_sample_rate(file_name),
+                        "model_id": model_dir.name
+                    })
+    
+    return pretrained_models
+
+
+def _extract_sample_rate(filename: str) -> str:
+    """파일명에서 샘플레이트 추출 (예: f0G32k.pth -> 32k)"""
+    import re
+    match = re.search(r'(\d+)k', filename, re.IGNORECASE)
+    if match:
+        return f"{match.group(1)}k"
+    return "unknown"
+
+
 @router.delete("/models/{model_id}")
 async def delete_model(
     model_id: str,
@@ -86,7 +253,7 @@ async def download_output_file(
             logger.error(f"파일이 존재하지 않음 | output_id={output_id} | path={file_path}")
             raise FileNotFoundError(f"File not found: {file_path}")
         
-        logger.info(f"파일 다운로드 시작 | output_id={output_id} | filename={filename} | path={file_path}")
+        logger.debug(f"파일 다운로드 시작 | output_id={output_id} | filename={filename} | path={file_path}")
         
         # 파일 확장자에 따른 미디어 타입 결정
         media_type_map = {
@@ -102,7 +269,7 @@ async def download_output_file(
             filename=filename,
             media_type=media_type,
         )
-        logger.info(f"파일 다운로드 응답 생성 완료 | output_id={output_id} | filename={filename}")
+        logger.debug(f"파일 다운로드 응답 생성 완료 | output_id={output_id} | filename={filename}")
         return response
     except FileNotFoundError as e:
         logger.error(f"파일을 찾을 수 없음 | output_id={output_id} | error={str(e)}")
@@ -127,7 +294,7 @@ async def download_file(
             logger.error(f"파일이 존재하지 않음 | path={path} | resolved_path={file_path}")
             raise FileNotFoundError(f"File not found: {file_path}")
         
-        logger.info(f"파일 다운로드 시작 | path={path} | filename={filename} | resolved_path={file_path}")
+        logger.debug(f"파일 다운로드 시작 | path={path} | filename={filename} | resolved_path={file_path}")
         
         response = FileResponse(
             str(file_path),

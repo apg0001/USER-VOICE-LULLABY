@@ -745,6 +745,9 @@ async def run_inference(
     reverb_dry_gain: Optional[float] = None,
     reverb_width: Optional[float] = None,
     reverb_freeze_mode: Optional[float] = None,
+    formant_shifting: Optional[bool] = None,
+    formant_qfrency: Optional[float] = None,
+    formant_timbre: Optional[float] = None,
 ) -> dict:
     defaults = INFERENCE_DEFAULTS
     input_path = _resolve_path(input_audio_path, RVC_ROOT)
@@ -790,6 +793,21 @@ async def run_inference(
         reverb_freeze_mode
         if reverb_freeze_mode is not None
         else defaults.reverb_freeze_mode
+    )
+    formant_shifting = (
+        formant_shifting
+        if formant_shifting is not None
+        else defaults.formant_shifting
+    )
+    formant_qfrency = (
+        formant_qfrency
+        if formant_qfrency is not None
+        else defaults.formant_qfrency
+    )
+    formant_timbre = (
+        formant_timbre
+        if formant_timbre is not None
+        else defaults.formant_timbre
     )
 
     unique_id = uuid4().hex
@@ -869,9 +887,9 @@ async def run_inference(
                     clean_strength=clean_strength,
                     export_format=defaults.export_format,
                     embedder_model=embedder_model,
-                    formant_shifting=defaults.formant_shifting,
-                    formant_qfrency=defaults.formant_qfrency,
-                    formant_timbre=defaults.formant_timbre,
+                    formant_shifting=formant_shifting,
+                    formant_qfrency=formant_qfrency,
+                    formant_timbre=formant_timbre,
                     post_process=defaults.post_process,
                     reverb=reverb,
                     reverb_room_size=reverb_room_size,

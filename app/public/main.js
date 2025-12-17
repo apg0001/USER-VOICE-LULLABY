@@ -55,7 +55,7 @@ const loadModels = async () => {
     });
 
     // 사전 학습 모델 드롭다운 업데이트
-    updatePretrainedModelDropdowns();
+    await updatePretrainedModelDropdowns();
 
     return models;
   } catch (error) {
@@ -102,7 +102,7 @@ document.getElementById("model-select").addEventListener("change", (e) => {
 });
 
 // 사전 학습 모델 드롭다운 업데이트
-const updatePretrainedModelDropdowns = () => {
+const updatePretrainedModelDropdowns = async () => {
   const gSelect = document.getElementById("g-pretrained-select");
   const dSelect = document.getElementById("d-pretrained-select");
 
@@ -112,7 +112,7 @@ const updatePretrainedModelDropdowns = () => {
   gSelect.innerHTML = '<option value="">모델을 선택하세요</option>';
   dSelect.innerHTML = '<option value="">모델을 선택하세요</option>';
 
-  // 모델 리스트를 순회하며 .pth 파일들을 드롭다운에 추가
+  // 1. 학습된 모델에서 G_와 D_ 파일 추가
   modelsCache.forEach((model) => {
     // 절대 경로 사용
     if (model.model_files_absolute && model.model_files_absolute.length > 0) {
@@ -122,19 +122,75 @@ const updatePretrainedModelDropdowns = () => {
         if (fileName.startsWith("G_") && fileName.endsWith(".pth")) {
           const option = document.createElement("option");
           option.value = absolutePath; // 절대 경로 사용
-          option.textContent = `${model.model_id} - ${fileName}`;
+          option.textContent = `[학습 모델] ${model.model_id} - ${fileName}`;
           gSelect.appendChild(option);
         }
         // D 모델 파일들 (D_로 시작하는 파일)
         if (fileName.startsWith("D_") && fileName.endsWith(".pth")) {
           const option = document.createElement("option");
           option.value = absolutePath; // 절대 경로 사용
-          option.textContent = `${model.model_id} - ${fileName}`;
+          option.textContent = `[학습 모델] ${model.model_id} - ${fileName}`;
           dSelect.appendChild(option);
         }
       });
     }
   });
+
+  // 2. 사전 학습 모델 API에서 조회하여 추가
+  try {
+    const response = await fetch("/pretrained-models");
+    if (response.ok) {
+      const pretrainedData = await response.json();
+      
+      // HiFi-GAN 사전 학습 모델 추가
+      if (pretrainedData["hifi-gan"] && pretrainedData["hifi-gan"].length > 0) {
+        pretrainedData["hifi-gan"].forEach((model) => {
+          const option = document.createElement("option");
+          option.value = model.path;
+          if (model.type === "G") {
+            option.textContent = `[HiFi-GAN] ${model.name} (${model.sample_rate})`;
+            gSelect.appendChild(option);
+          } else if (model.type === "D") {
+            option.textContent = `[HiFi-GAN] ${model.name} (${model.sample_rate})`;
+            dSelect.appendChild(option);
+          }
+        });
+      }
+      
+      // 커스텀 사전 학습 모델 추가
+      if (pretrainedData.custom && pretrainedData.custom.length > 0) {
+        pretrainedData.custom.forEach((model) => {
+          const option = document.createElement("option");
+          option.value = model.path;
+          if (model.type === "G") {
+            option.textContent = `[커스텀] ${model.name} (${model.sample_rate})`;
+            gSelect.appendChild(option);
+          } else if (model.type === "D") {
+            option.textContent = `[커스텀] ${model.name} (${model.sample_rate})`;
+            dSelect.appendChild(option);
+          }
+        });
+      }
+      
+      // logs 폴더의 사전 학습 모델 추가 (KLM 등)
+      if (pretrainedData.logs && pretrainedData.logs.length > 0) {
+        pretrainedData.logs.forEach((model) => {
+          const option = document.createElement("option");
+          option.value = model.path;
+          const modelIdLabel = model.model_id ? `${model.model_id} - ` : "";
+          if (model.type === "G") {
+            option.textContent = `[logs] ${modelIdLabel}${model.name} (${model.sample_rate})`;
+            gSelect.appendChild(option);
+          } else if (model.type === "D") {
+            option.textContent = `[logs] ${modelIdLabel}${model.name} (${model.sample_rate})`;
+            dSelect.appendChild(option);
+          }
+        });
+      }
+    }
+  } catch (error) {
+    console.error("사전 학습 모델 조회 실패:", error);
+  }
 };
 
 // Custom Pretrained 선택 시 사전 학습 모델 그룹 표시/숨김
@@ -559,10 +615,10 @@ window.deleteModel = async (modelId, modelName) => {
     alert("모델이 삭제되었습니다.");
 
     // 삭제 후 리스트 새로고침
-    setTimeout(() => {
+    setTimeout(async () => {
       refreshModels();
       // 사전 학습 모델 드롭다운도 업데이트
-      updatePretrainedModelDropdowns();
+      await updatePretrainedModelDropdowns();
     }, 500);
   } catch (error) {
     alert(`모델 삭제 실패: ${error.message || error}`);
