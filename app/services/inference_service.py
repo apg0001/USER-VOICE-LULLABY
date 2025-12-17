@@ -48,8 +48,11 @@ class InferenceService:
         reverb_damping: Optional[float] = None,
         reverb_wet_gain: Optional[float] = None,
         reverb_dry_gain: Optional[float] = None,
-        reverb_width: Optional[float] = None,
-        reverb_freeze_mode: Optional[float] = None,
+    reverb_width: Optional[float] = None,
+    reverb_freeze_mode: Optional[float] = None,
+    formant_shifting: Optional[bool] = None,
+    formant_qfrency: Optional[float] = None,
+    formant_timbre: Optional[float] = None,
     ) -> dict:
         """추론 실행"""
         return await _run_inference(
@@ -73,6 +76,9 @@ class InferenceService:
             reverb_dry_gain=reverb_dry_gain,
             reverb_width=reverb_width,
             reverb_freeze_mode=reverb_freeze_mode,
+            formant_shifting=formant_shifting,
+            formant_qfrency=formant_qfrency,
+            formant_timbre=formant_timbre,
         )
 
     async def infer_from_request(self, request: InferenceFilesRequest) -> dict:
@@ -98,4 +104,7 @@ class InferenceService:
             reverb_dry_gain=request.reverb_dry_gain,
             reverb_width=request.reverb_width,
             reverb_freeze_mode=request.reverb_freeze_mode,
+            formant_shifting=request.formant_shifting,
+            formant_qfrency=request.formant_qfrency,
+            formant_timbre=request.formant_timbre,
         )

@@ -347,6 +347,34 @@
             </label>
           </div>
           <label>
+            Formant Shifting (포먼트 시프팅, 선택)
+            <input name="formant_shifting" type="checkbox" />
+          </label>
+          <div id="formant-params" style="display: none; margin-left: 1rem">
+            <label>
+              Formant Qfrency (포먼트 주파수, 선택)
+              <input
+                name="formant_qfrency"
+                type="number"
+                step="0.1"
+                min="0.1"
+                max="2.0"
+                placeholder="기본 1.0"
+              />
+            </label>
+            <label>
+              Formant Timbre (포먼트 톤, 선택)
+              <input
+                name="formant_timbre"
+                type="number"
+                step="0.1"
+                min="0.1"
+                max="2.0"
+                placeholder="기본 1.0"
+              />
+            </label>
+          </div>
+          <label>
             Embedder Model (선택)
             <input
               name="embedder_model"

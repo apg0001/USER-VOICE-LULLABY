@@ -46,3 +46,6 @@ class InferenceFilesRequest(BaseModel):
     reverb_dry_gain: Optional[float] = None
     reverb_width: Optional[float] = None
     reverb_freeze_mode: Optional[float] = None
+    formant_shifting: Optional[bool] = None
+    formant_qfrency: Optional[float] = None
+    formant_timbre: Optional[float] = None

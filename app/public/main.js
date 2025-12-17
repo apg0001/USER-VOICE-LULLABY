@@ -829,6 +829,21 @@ document
       if (form.embedder_model.value.trim().length > 0) {
         formData.append("embedder_model", form.embedder_model.value);
       }
+      if (form.formant_shifting && form.formant_shifting.checked) {
+        formData.append("formant_shifting", "true");
+      }
+      if (
+        form.formant_qfrency &&
+        form.formant_qfrency.value.trim().length > 0
+      ) {
+        formData.append("formant_qfrency", form.formant_qfrency.value);
+      }
+      if (
+        form.formant_timbre &&
+        form.formant_timbre.value.trim().length > 0
+      ) {
+        formData.append("formant_timbre", form.formant_timbre.value);
+      }
 
       const response = await fetch("/inference", {
         method: "POST",
@@ -1046,6 +1061,16 @@ const reverbParams = document.getElementById("reverb-params");
 if (reverbCheckbox && reverbParams) {
   reverbCheckbox.addEventListener("change", () => {
     reverbParams.style.display = reverbCheckbox.checked ? "block" : "none";
+  });
+}
+
+// Formant Shifting 체크박스에 따라 파라미터 입력 필드 표시/숨김
+const formantCheckbox = document.querySelector('input[name="formant_shifting"]');
+const formantParams = document.getElementById("formant-params");
+
+if (formantCheckbox && formantParams) {
+  formantCheckbox.addEventListener("change", () => {
+    formantParams.style.display = formantCheckbox.checked ? "block" : "none";
   });
 }
 

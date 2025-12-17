@@ -42,6 +42,9 @@ async def start_inference(
     reverb_dry_gain: Optional[float] = Form(None),
     reverb_width: Optional[float] = Form(None),
     reverb_freeze_mode: Optional[float] = Form(None),
+    formant_shifting: Optional[bool] = Form(None),
+    formant_qfrency: Optional[float] = Form(None),
+    formant_timbre: Optional[float] = Form(None),
     inference_service: InferenceService = Depends(get_inference_service),
     inference_queue: AsyncJobQueue = Depends(get_inference_queue),
     file_repo: FileRepository = Depends(get_file_repository),
@@ -118,6 +121,21 @@ async def start_inference(
         if reverb_freeze_mode is not None
         else INFERENCE_DEFAULTS.reverb_freeze_mode
     )
+    formant_shifting = (
+        formant_shifting
+        if formant_shifting is not None
+        else INFERENCE_DEFAULTS.formant_shifting
+    )
+    formant_qfrency = (
+        formant_qfrency
+        if formant_qfrency is not None
+        else INFERENCE_DEFAULTS.formant_qfrency
+    )
+    formant_timbre = (
+        formant_timbre
+        if formant_timbre is not None
+        else INFERENCE_DEFAULTS.formant_timbre
+    )
 
     logger.debug(
         f"추론 파라미터 | model_path={model_path} | index_path={index_path} | "
@@ -153,6 +171,9 @@ async def start_inference(
             reverb_dry_gain=reverb_dry_gain,
             reverb_width=reverb_width,
             reverb_freeze_mode=reverb_freeze_mode,
+            formant_shifting=formant_shifting,
+            formant_qfrency=formant_qfrency,
+            formant_timbre=formant_timbre,
         )
 
         # 비동기 작업 등록
@@ -177,7 +198,8 @@ async def start_inference(
             f"clean_audio={clean_audio} | clean_strength={clean_strength} | reverb={reverb} | "
             f"reverb_room_size={reverb_room_size} | reverb_damping={reverb_damping} | "
             f"reverb_wet_gain={reverb_wet_gain} | reverb_dry_gain={reverb_dry_gain} | "
-            f"reverb_width={reverb_width} | reverb_freeze_mode={reverb_freeze_mode}"
+            f"reverb_width={reverb_width} | reverb_freeze_mode={reverb_freeze_mode} | "
+            f"formant_shifting={formant_shifting} | formant_qfrency={formant_qfrency} | formant_timbre={formant_timbre}"
         )
 
         return {"status": "queued", "job_id": job_id}
