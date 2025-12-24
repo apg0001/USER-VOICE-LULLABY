@@ -41,7 +41,7 @@ class FileRepository:
         try:
             dataset_path = self.dataset_root / model_id
             os.makedirs(dataset_path, exist_ok=True)
-            self._logger.info(f"데이터셋 저장 경로 생성: {dataset_path}")
+            self._logger.debug(f"데이터셋 저장 경로 생성: {dataset_path}")
         except OSError as e:
             self._logger.error(f"데이터셋 디렉토리 생성 실패 | model_id={model_id} | path={dataset_path} | error={e}", exc_info=True)
             raise RuntimeError(f"데이터셋 디렉토리 생성 실패: {str(e)}")
@@ -71,7 +71,7 @@ class FileRepository:
                     with open(file_path, "wb") as f:
                         f.write(content)
                     saved_files.append(file_path)
-                    self._logger.info(f"파일 저장 완료 | file_path={file_path} | filename={file.filename} | size={len(content)} bytes")
+                    self._logger.debug(f"파일 저장 완료 | file_path={file_path} | filename={file.filename} | size={len(content)} bytes")
                 except OSError as e:
                     self._logger.error(f"파일 저장 실패 | file_path={file_path} | filename={file.filename} | error={e}", exc_info=True)
                     raise RuntimeError(f"파일 저장 실패 ({file.filename}): {str(e)}")
@@ -83,14 +83,14 @@ class FileRepository:
             self._logger.error(f"저장된 파일이 없음 | model_id={model_id}")
             raise ValueError("저장된 파일이 없습니다. 유효한 파일을 업로드해주세요.")
         
-        self._logger.info(f"학습 파일 저장 완료 | model_id={model_id} | saved_count={len(saved_files)} | dataset_path={dataset_path}")
+        self._logger.debug(f"학습 파일 저장 완료 | model_id={model_id} | saved_count={len(saved_files)} | dataset_path={dataset_path}")
         return dataset_path
     
     def save_inference_audio(self, audio_file) -> Path:
         """추론용 오디오 파일 저장"""
         try:
             os.makedirs(self.audio_root, exist_ok=True)
-            self._logger.info(f"타깃 오디오 저장 경로 생성: {self.audio_root}")
+            self._logger.debug(f"타깃 오디오 저장 경로 생성: {self.audio_root}")
         except OSError as e:
             self._logger.error(f"오디오 디렉토리 생성 실패 | path={self.audio_root} | error={e}", exc_info=True)
             raise RuntimeError(f"오디오 디렉토리 생성 실패: {str(e)}")
@@ -114,7 +114,7 @@ class FileRepository:
             try:
                 with open(temp_audio_path, "wb") as f:
                     f.write(content)
-                self._logger.info(f"임시 오디오 파일 저장 완료 | path={temp_audio_path} | filename={filename} | size={len(content)} bytes")
+                self._logger.debug(f"임시 오디오 파일 저장 완료 | path={temp_audio_path} | filename={filename} | size={len(content)} bytes")
             except OSError as e:
                 self._logger.error(f"오디오 파일 저장 실패 | path={temp_audio_path} | error={e}", exc_info=True)
                 raise RuntimeError(f"오디오 파일 저장 실패: {str(e)}")

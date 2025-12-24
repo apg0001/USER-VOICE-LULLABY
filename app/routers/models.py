@@ -1,4 +1,5 @@
 """모델 및 출력 관리 라우터"""
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
@@ -25,68 +26,11 @@ async def list_models(
     return model_service.list_models()
 
 
-@router.get("/pretrained-models")
-async def list_pretrained_models():
-    """사전 학습 모델 리스트를 조회합니다."""
-    from pathlib import Path
-    from ..constants import RVC_ROOT
-    import re
-    
-    pretraineds_dir = RVC_ROOT / "rvc" / "models" / "pretraineds"
-    pretrained_models = {
-        "hifi-gan": [],
-        "custom": []
-    }
-    
-    # HiFi-GAN 사전 학습 모델 (기본)
-    hifigan_dir = pretraineds_dir / "hifi-gan"
-    if hifigan_dir.exists():
-        for pth_file in hifigan_dir.glob("*.pth"):
-            file_name = pth_file.name
-            file_path = str(pth_file.resolve())
-            if file_name.startswith("f0G"):
-                pretrained_models["hifi-gan"].append({
-                    "name": file_name,
-                    "path": file_path,
-                    "type": "G",
-                    "sample_rate": _extract_sample_rate(file_name)
-                })
-            elif file_name.startswith("f0D"):
-                pretrained_models["hifi-gan"].append({
-                    "name": file_name,
-                    "path": file_path,
-                    "type": "D",
-                    "sample_rate": _extract_sample_rate(file_name)
-                })
-    
-    # 커스텀 사전 학습 모델 (custom 디렉토리에서 직접 스캔)
-    custom_dir = pretraineds_dir / "custom"
-    if custom_dir.exists():
-        for pth_file in custom_dir.rglob("*.pth"):
-            file_name = pth_file.name
-            file_path = str(pth_file.resolve())
-            if file_name.startswith("G_") or file_name.startswith("G-"):
-                pretrained_models["custom"].append({
-                    "name": file_name,
-                    "path": file_path,
-                    "type": "G",
-                    "sample_rate": _extract_sample_rate(file_name)
-                })
-            elif file_name.startswith("D_") or file_name.startswith("D-"):
-                pretrained_models["custom"].append({
-                    "name": file_name,
-                    "path": file_path,
-                    "type": "D",
-                    "sample_rate": _extract_sample_rate(file_name)
-                })
-    
-    return pretrained_models
-
-
 def _extract_sample_rate(filename: str) -> str:
     """파일명에서 샘플레이트 추출 (예: f0G32k.pth -> 32k)"""
     import re
-    match = re.search(r'(\d+)k', filename, re.IGNORECASE)
+
+    match = re.search(r"(\d+)k", filename, re.IGNORECASE)
     if match:
         return f"{match.group(1)}k"
     return "unknown"
@@ -97,96 +41,59 @@ async def list_pretrained_models():
     """사전 학습 모델 리스트를 조회합니다."""
     from pathlib import Path
     from ..constants import RVC_ROOT, RVC_LOGS_DIR
-    
+
     pretrained_models = {
         "hifi-gan": [],
         "custom": [],
-        "logs": []  # logs 폴더의 사전 학습 모델
+        "logs": [],  # logs 폴더의 사전 학습 모델
     }
-    
-    # 1. HiFi-GAN 사전 학습 모델 (기본)
-    pretraineds_dir = RVC_ROOT / "rvc" / "models" / "pretraineds"
-    hifigan_dir = pretraineds_dir / "hifi-gan"
-    if hifigan_dir.exists():
-        for pth_file in hifigan_dir.glob("*.pth"):
-            file_name = pth_file.name
-            file_path = str(pth_file.resolve())
-            if file_name.startswith("f0G"):
-                pretrained_models["hifi-gan"].append({
-                    "name": file_name,
-                    "path": file_path,
-                    "type": "G",
-                    "sample_rate": _extract_sample_rate(file_name)
-                })
-            elif file_name.startswith("f0D"):
-                pretrained_models["hifi-gan"].append({
-                    "name": file_name,
-                    "path": file_path,
-                    "type": "D",
-                    "sample_rate": _extract_sample_rate(file_name)
-                })
-    
-    # 2. 커스텀 사전 학습 모델 (custom 디렉토리에서 직접 스캔)
-    custom_dir = pretraineds_dir / "custom"
-    if custom_dir.exists():
-        for pth_file in custom_dir.rglob("*.pth"):
-            file_name = pth_file.name
-            file_path = str(pth_file.resolve())
-            if file_name.startswith("G_") or file_name.startswith("G-"):
-                pretrained_models["custom"].append({
-                    "name": file_name,
-                    "path": file_path,
-                    "type": "G",
-                    "sample_rate": _extract_sample_rate(file_name)
-                })
-            elif file_name.startswith("D_") or file_name.startswith("D-"):
-                pretrained_models["custom"].append({
-                    "name": file_name,
-                    "path": file_path,
-                    "type": "D",
-                    "sample_rate": _extract_sample_rate(file_name)
-                })
-    
+
     # 3. logs 폴더의 사전 학습 모델 (KLM 등)
     if RVC_LOGS_DIR.exists():
         for model_dir in RVC_LOGS_DIR.iterdir():
             if not model_dir.is_dir():
                 continue
-            
+
             # 보호된 디렉토리 제외
             from ..repositories.model_repository import PROTECTED_DIRS
+
             if model_dir.name in PROTECTED_DIRS:
                 continue
-            
+
             # logs 폴더 내의 모든 .pth 파일 스캔
             for pth_file in model_dir.glob("*.pth"):
                 file_name = pth_file.name
                 file_path = str(pth_file.resolve())
                 # G_ 또는 D_로 시작하는 파일만 사전 학습 모델로 간주
                 if file_name.startswith("G_") or file_name.startswith("G-"):
-                    pretrained_models["logs"].append({
-                        "name": file_name,
-                        "path": file_path,
-                        "type": "G",
-                        "sample_rate": _extract_sample_rate(file_name),
-                        "model_id": model_dir.name
-                    })
+                    pretrained_models["logs"].append(
+                        {
+                            "name": file_name,
+                            "path": file_path,
+                            "type": "G",
+                            "sample_rate": _extract_sample_rate(file_name),
+                            "model_id": model_dir.name,
+                        }
+                    )
                 elif file_name.startswith("D_") or file_name.startswith("D-"):
-                    pretrained_models["logs"].append({
-                        "name": file_name,
-                        "path": file_path,
-                        "type": "D",
-                        "sample_rate": _extract_sample_rate(file_name),
-                        "model_id": model_dir.name
-                    })
-    
+                    pretrained_models["logs"].append(
+                        {
+                            "name": file_name,
+                            "path": file_path,
+                            "type": "D",
+                            "sample_rate": _extract_sample_rate(file_name),
+                            "model_id": model_dir.name,
+                        }
+                    )
+
     return pretrained_models
 
 
 def _extract_sample_rate(filename: str) -> str:
     """파일명에서 샘플레이트 추출 (예: f0G32k.pth -> 32k)"""
     import re
-    match = re.search(r'(\d+)k', filename, re.IGNORECASE)
+
+    match = re.search(r"(\d+)k", filename, re.IGNORECASE)
     if match:
         return f"{match.group(1)}k"
     return "unknown"
@@ -207,7 +114,9 @@ async def delete_model(
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
         logger.exception(f"모델 삭제 실패: {model_id}")
-        raise HTTPException(status_code=500, detail=f"모델 삭제 중 오류 발생: {str(exc)}")
+        raise HTTPException(
+            status_code=500, detail=f"모델 삭제 중 오류 발생: {str(exc)}"
+        )
 
 
 @router.get("/outputs", response_model=list[OutputInfo])
@@ -233,7 +142,9 @@ async def delete_output(
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
         logger.exception(f"출력 파일 삭제 실패: {output_id}")
-        raise HTTPException(status_code=500, detail=f"출력 파일 삭제 중 오류 발생: {str(exc)}")
+        raise HTTPException(
+            status_code=500, detail=f"출력 파일 삭제 중 오류 발생: {str(exc)}"
+        )
 
 
 @router.get("/outputs/{output_id}/download")
@@ -245,16 +156,21 @@ async def download_output_file(
     logger.info(f"다운로드 요청 수신 | output_id={output_id}")
     try:
         from ..repositories.output_repository import OutputRepository
+
         repo = OutputRepository()
         file_path = repo.get_output_path(output_id)
         filename = file_path.name
-        
+
         if not file_path.exists():
-            logger.error(f"파일이 존재하지 않음 | output_id={output_id} | path={file_path}")
+            logger.error(
+                f"파일이 존재하지 않음 | output_id={output_id} | path={file_path}"
+            )
             raise FileNotFoundError(f"File not found: {file_path}")
-        
-        logger.debug(f"파일 다운로드 시작 | output_id={output_id} | filename={filename} | path={file_path}")
-        
+
+        logger.debug(
+            f"파일 다운로드 시작 | output_id={output_id} | filename={filename} | path={file_path}"
+        )
+
         # 파일 확장자에 따른 미디어 타입 결정
         media_type_map = {
             ".wav": "audio/wav",
@@ -263,20 +179,26 @@ async def download_output_file(
             ".m4a": "audio/mp4",
         }
         media_type = media_type_map.get(file_path.suffix.lower(), "audio/wav")
-        
+
         response = FileResponse(
             str(file_path),
             filename=filename,
             media_type=media_type,
         )
-        logger.debug(f"파일 다운로드 응답 생성 완료 | output_id={output_id} | filename={filename}")
+        logger.debug(
+            f"파일 다운로드 응답 생성 완료 | output_id={output_id} | filename={filename}"
+        )
         return response
     except FileNotFoundError as e:
         logger.error(f"파일을 찾을 수 없음 | output_id={output_id} | error={str(e)}")
         raise HTTPException(status_code=404, detail="File not found")
     except Exception as exc:
-        logger.exception(f"출력 파일 다운로드 실패 | output_id={output_id} | error={str(exc)}")
-        raise HTTPException(status_code=500, detail=f"파일 다운로드 중 오류 발생: {str(exc)}")
+        logger.exception(
+            f"출력 파일 다운로드 실패 | output_id={output_id} | error={str(exc)}"
+        )
+        raise HTTPException(
+            status_code=500, detail=f"파일 다운로드 중 오류 발생: {str(exc)}"
+        )
 
 
 @router.get("/download")
@@ -289,13 +211,17 @@ async def download_file(
     try:
         file_path = file_repo.get_file_path(path)
         filename = file_path.name
-        
+
         if not file_path.exists():
-            logger.error(f"파일이 존재하지 않음 | path={path} | resolved_path={file_path}")
+            logger.error(
+                f"파일이 존재하지 않음 | path={path} | resolved_path={file_path}"
+            )
             raise FileNotFoundError(f"File not found: {file_path}")
-        
-        logger.debug(f"파일 다운로드 시작 | path={path} | filename={filename} | resolved_path={file_path}")
-        
+
+        logger.debug(
+            f"파일 다운로드 시작 | path={path} | filename={filename} | resolved_path={file_path}"
+        )
+
         response = FileResponse(
             str(file_path),
             filename=filename,
@@ -311,5 +237,6 @@ async def download_file(
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         logger.exception(f"파일 다운로드 실패 | path={path} | error={str(exc)}")
-        raise HTTPException(status_code=500, detail=f"파일 다운로드 중 오류 발생: {str(exc)}")
-
+        raise HTTPException(
+            status_code=500, detail=f"파일 다운로드 중 오류 발생: {str(exc)}"
+        )
