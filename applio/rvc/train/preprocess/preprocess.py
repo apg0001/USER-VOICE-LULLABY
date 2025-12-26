@@ -68,14 +68,22 @@ class PreProcess:
         idx0: int,
         idx1: int,
         normalization_mode: str,
+        enable_augmentation: bool = False,
+        speed_perturbation: list = None,
+        volume_augmentation: list = None,
     ):
         if normalized_audio is None:
-            print(f"{sid}-{idx0}-{idx1}-filtered")
-            return
+            print(f"[DEBUG] {sid}-{idx0}-{idx1}-filtered")
+            return 0  # 생성된 증강 파일 수 반환
+        
         if normalization_mode == "post":
             normalized_audio = self._normalize_audio(normalized_audio)
+        
+        # 원본 오디오 저장
+        original_filename = f"{sid}_{idx0}_{idx1}.wav"
+        print(f"[DEBUG] 원본 파일 저장: {original_filename}")
         wavfile.write(
-            os.path.join(self.gt_wavs_dir, f"{sid}_{idx0}_{idx1}.wav"),
+            os.path.join(self.gt_wavs_dir, original_filename),
             self.sr,
             normalized_audio.astype(np.float32),
         )
@@ -86,10 +94,83 @@ class PreProcess:
             res_type=RES_TYPE,
         )
         wavfile.write(
-            os.path.join(self.wavs16k_dir, f"{sid}_{idx0}_{idx1}.wav"),
+            os.path.join(self.wavs16k_dir, original_filename),
             SAMPLE_RATE_16K,
             audio_16k.astype(np.float32),
         )
+        
+        # 데이터 증강이 활성화된 경우에만 증강된 버전 생성
+        aug_count = 0  # 생성된 증강 파일 수
+        if enable_augmentation:
+            aug_idx = idx1 + 1  # idx1 다음부터 시작하여 겹침 방지
+            print(f"[DEBUG] 데이터 증강 시작: 원본 idx1={idx1}, 증강 시작 aug_idx={aug_idx}")
+            
+            # Speed perturbation (0.9, 1.1)
+            if speed_perturbation:
+                print(f"[DEBUG] Speed perturbation 적용: {speed_perturbation}")
+                for speed_factor in speed_perturbation:
+                    # librosa의 time_stretch는 시간을 늘리거나 줄이지만, 
+                    # speed perturbation은 pitch를 유지하면서 속도만 변경
+                    # librosa.effects.time_stretch는 실제로는 pitch도 변경하므로
+                    # librosa의 resample을 사용하여 속도만 변경
+                    # 하지만 더 정확한 방법은 librosa.effects.time_stretch를 사용
+                    augmented_audio = librosa.effects.time_stretch(normalized_audio, rate=speed_factor)
+                    aug_filename = f"{sid}_{idx0}_{aug_idx}.wav"
+                    print(f"[DEBUG] Speed perturbation 파일 저장: {aug_filename} (factor={speed_factor})")
+                    
+                    wavfile.write(
+                        os.path.join(self.gt_wavs_dir, aug_filename),
+                        self.sr,
+                        augmented_audio.astype(np.float32),
+                    )
+                    augmented_audio_16k = librosa.resample(
+                        augmented_audio,
+                        orig_sr=self.sr,
+                        target_sr=SAMPLE_RATE_16K,
+                        res_type=RES_TYPE,
+                    )
+                    wavfile.write(
+                        os.path.join(self.wavs16k_dir, aug_filename),
+                        SAMPLE_RATE_16K,
+                        augmented_audio_16k.astype(np.float32),
+                    )
+                    aug_idx += 1
+                    aug_count += 1
+            
+            # Volume augmentation (0.9, 1.1)
+            if volume_augmentation:
+                print(f"[DEBUG] Volume augmentation 적용: {volume_augmentation}")
+                for volume_factor in volume_augmentation:
+                    augmented_audio = normalized_audio * volume_factor
+                    # 클리핑 방지
+                    augmented_audio = np.clip(augmented_audio, -1.0, 1.0)
+                    aug_filename = f"{sid}_{idx0}_{aug_idx}.wav"
+                    print(f"[DEBUG] Volume augmentation 파일 저장: {aug_filename} (factor={volume_factor})")
+                    
+                    wavfile.write(
+                        os.path.join(self.gt_wavs_dir, aug_filename),
+                        self.sr,
+                        augmented_audio.astype(np.float32),
+                    )
+                    augmented_audio_16k = librosa.resample(
+                        augmented_audio,
+                        orig_sr=self.sr,
+                        target_sr=SAMPLE_RATE_16K,
+                        res_type=RES_TYPE,
+                    )
+                    wavfile.write(
+                        os.path.join(self.wavs16k_dir, aug_filename),
+                        SAMPLE_RATE_16K,
+                        augmented_audio_16k.astype(np.float32),
+                    )
+                    aug_idx += 1
+                    aug_count += 1
+            
+            print(f"[DEBUG] 증강 완료: 총 {aug_count}개 파일 생성 (원본 idx1={idx1}, 마지막 aug_idx={aug_idx-1})")
+        else:
+            print(f"[DEBUG] 데이터 증강 비활성화: aug_count=0")
+        
+        return aug_count  # 생성된 증강 파일 수 반환
 
     def simple_cut(
         self,
@@ -99,36 +180,36 @@ class PreProcess:
         chunk_len: float,
         overlap_len: float,
         normalization_mode: str,
+        enable_augmentation: bool = False,
+        speed_perturbation: list = None,
+        volume_augmentation: list = None,
     ):
         chunk_length = int(self.sr * chunk_len)
         overlap_length = int(self.sr * overlap_len)
         i = 0
+        chunk_idx = 0
+        print(f"[DEBUG] Simple cut 시작: sid={sid}, idx0={idx0}, chunk_len={chunk_len}, overlap_len={overlap_len}")
         while i < len(audio):
             chunk = audio[i : i + chunk_length]
             if normalization_mode == "post":
                 chunk = self._normalize_audio(chunk)
             if len(chunk) == chunk_length:
-                # full SR for training
-                wavfile.write(
-                    os.path.join(
-                        self.gt_wavs_dir,
-                        f"{sid}_{idx0}_{i // (chunk_length - overlap_length)}.wav",
-                    ),
-                    self.sr,
-                    chunk.astype(np.float32),
+                # 원본 청크 저장
+                print(f"[DEBUG] Simple cut 처리: chunk_idx={chunk_idx}")
+                aug_count = self.process_audio_segment(
+                    chunk,
+                    sid,
+                    idx0,
+                    chunk_idx,
+                    normalization_mode,
+                    enable_augmentation,
+                    speed_perturbation,
+                    volume_augmentation,
                 )
-                # 16KHz for feature extraction
-                chunk_16k = librosa.resample(
-                    chunk, orig_sr=self.sr, target_sr=SAMPLE_RATE_16K, res_type=RES_TYPE
-                )
-                wavfile.write(
-                    os.path.join(
-                        self.wavs16k_dir,
-                        f"{sid}_{idx0}_{i // (chunk_length - overlap_length)}.wav",
-                    ),
-                    SAMPLE_RATE_16K,
-                    chunk_16k.astype(np.float32),
-                )
+                # 원본 1개 + 증강 파일 수만큼 증가
+                old_chunk_idx = chunk_idx
+                chunk_idx += 1 + aug_count
+                print(f"[DEBUG] Simple cut idx 업데이트: {old_chunk_idx} -> {chunk_idx} (증강 {aug_count}개 포함)")
             i += chunk_length - overlap_length
 
     def process_audio(
@@ -143,6 +224,9 @@ class PreProcess:
         chunk_len: float,
         overlap_len: float,
         normalization_mode: str,
+        enable_augmentation: bool = False,
+        speed_perturbation: list = None,
+        volume_augmentation: list = None,
     ):
         audio_length = 0
         try:
@@ -159,13 +243,17 @@ class PreProcess:
                 )
             if cut_preprocess == "Skip":
                 # no cutting
-                self.process_audio_segment(
+                aug_count = self.process_audio_segment(
                     audio,
                     sid,
                     idx0,
                     0,
                     normalization_mode,
+                    enable_augmentation,
+                    speed_perturbation,
+                    volume_augmentation,
                 )
+                # Skip 모드에서는 단일 파일이므로 idx1 증가 불필요
             elif cut_preprocess == "Simple":
                 # simple
                 self.simple_cut(
@@ -175,11 +263,18 @@ class PreProcess:
                     chunk_len,
                     overlap_len,
                     normalization_mode,
+                    enable_augmentation,
+                    speed_perturbation,
+                    volume_augmentation,
                 )
             elif cut_preprocess == "Automatic":
                 idx1 = 0
+                print(f"[DEBUG] Automatic cut 시작: sid={sid}, idx0={idx0}, 초기 idx1={idx1}")
                 # legacy
+                segment_count = 0
                 for audio_segment in self.slicer.slice(audio):
+                    segment_count += 1
+                    print(f"[DEBUG] Automatic cut 세그먼트 {segment_count} 처리 시작: 현재 idx1={idx1}")
                     i = 0
                     while True:
                         start = int(self.sr * (PERCENTAGE - OVERLAP) * i)
@@ -191,25 +286,40 @@ class PreProcess:
                             tmp_audio = audio_segment[
                                 start : start + int(PERCENTAGE * self.sr)
                             ]
-                            self.process_audio_segment(
+                            print(f"[DEBUG] Automatic cut 청크 처리: idx1={idx1}")
+                            aug_count = self.process_audio_segment(
                                 tmp_audio,
                                 sid,
                                 idx0,
                                 idx1,
                                 normalization_mode,
+                                enable_augmentation,
+                                speed_perturbation,
+                                volume_augmentation,
                             )
-                            idx1 += 1
+                            # 원본 1개 + 증강 파일 수만큼 증가
+                            old_idx1 = idx1
+                            idx1 += 1 + aug_count
+                            print(f"[DEBUG] Automatic cut idx 업데이트: {old_idx1} -> {idx1} (증강 {aug_count}개 포함)")
                         else:
                             tmp_audio = audio_segment[start:]
-                            self.process_audio_segment(
+                            print(f"[DEBUG] Automatic cut 마지막 청크 처리: idx1={idx1}")
+                            aug_count = self.process_audio_segment(
                                 tmp_audio,
                                 sid,
                                 idx0,
                                 idx1,
                                 normalization_mode,
+                                enable_augmentation,
+                                speed_perturbation,
+                                volume_augmentation,
                             )
-                            idx1 += 1
+                            # 원본 1개 + 증강 파일 수만큼 증가
+                            old_idx1 = idx1
+                            idx1 += 1 + aug_count
+                            print(f"[DEBUG] Automatic cut idx 업데이트: {old_idx1} -> {idx1} (증강 {aug_count}개 포함)")
                             break
+                print(f"[DEBUG] Automatic cut 완료: 총 {segment_count}개 세그먼트, 최종 idx1={idx1}")
 
         except Exception as error:
             print(f"Error processing audio: {error}")
@@ -225,7 +335,7 @@ def format_duration(seconds):
 
 def save_dataset_duration(file_path, dataset_duration):
     try:
-        with open(file_path, "r") as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except FileNotFoundError:
         data = {}
@@ -237,8 +347,8 @@ def save_dataset_duration(file_path, dataset_duration):
     }
     data.update(new_data)
 
-    with open(file_path, "w") as f:
-        json.dump(data, f, indent=4)
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
 
 
 def process_audio_wrapper(args):
@@ -252,6 +362,9 @@ def process_audio_wrapper(args):
         chunk_len,
         overlap_len,
         normalization_mode,
+        enable_augmentation,
+        speed_perturbation,
+        volume_augmentation,
     ) = args
     file_path, idx0, sid = file
     return pp.process_audio(
@@ -265,6 +378,9 @@ def process_audio_wrapper(args):
         chunk_len,
         overlap_len,
         normalization_mode,
+        enable_augmentation,
+        speed_perturbation,
+        volume_augmentation,
     )
 
 
@@ -280,6 +396,9 @@ def preprocess_training_set(
     chunk_len: float,
     overlap_len: float,
     normalization_mode: str,
+    enable_augmentation: bool = False,
+    speed_perturbation: list = None,
+    volume_augmentation: list = None,
 ):
     start_time = time.time()
     pp = PreProcess(sr, exp_dir)
@@ -320,6 +439,9 @@ def preprocess_training_set(
                         chunk_len,
                         overlap_len,
                         normalization_mode,
+                        enable_augmentation,
+                        speed_perturbation,
+                        volume_augmentation,
                     ),
                 )
                 for file in files
@@ -354,6 +476,9 @@ if __name__ == "__main__":
     chunk_len = float(sys.argv[9])
     overlap_len = float(sys.argv[10])
     normalization_mode = str(sys.argv[11])
+    enable_augmentation = strtobool(sys.argv[12]) if len(sys.argv) > 12 else False
+    speed_perturbation = json.loads(sys.argv[13]) if len(sys.argv) > 13 and sys.argv[13] else None
+    volume_augmentation = json.loads(sys.argv[14]) if len(sys.argv) > 14 and sys.argv[14] else None
     preprocess_training_set(
         input_root,
         sample_rate,
@@ -366,4 +491,7 @@ if __name__ == "__main__":
         chunk_len,
         overlap_len,
         normalization_mode,
+        enable_augmentation,
+        speed_perturbation,
+        volume_augmentation,
     )

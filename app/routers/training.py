@@ -34,6 +34,9 @@ async def start_training(
     g_pretrained_path: Optional[str] = Form(None),
     d_pretrained_path: Optional[str] = Form(None),
     model_description: Optional[str] = Form(None),
+    enable_augmentation: Optional[bool] = Form(None),
+    speed_perturbation: Optional[str] = Form(None),  # JSON 문자열로 받음
+    volume_augmentation: Optional[str] = Form(None),  # JSON 문자열로 받음
     training_service: TrainingService = Depends(get_training_service),
     train_queue: AsyncJobQueue = Depends(get_train_queue),
     file_repo: FileRepository = Depends(get_file_repository),
@@ -61,10 +64,23 @@ async def start_training(
     g_pretrained_path = g_pretrained_path if g_pretrained_path is not None else TRAINING_DEFAULTS.g_pretrained_path
     d_pretrained_path = d_pretrained_path if d_pretrained_path is not None else TRAINING_DEFAULTS.d_pretrained_path
     
+    # 데이터 증강 파라미터 파싱 (JSON 문자열을 리스트로 변환)
+    import json
+    enable_augmentation = enable_augmentation if enable_augmentation is not None else TRAINING_DEFAULTS.enable_augmentation
+    try:
+        speed_perturbation_parsed = json.loads(speed_perturbation) if speed_perturbation and speed_perturbation.strip() else TRAINING_DEFAULTS.speed_perturbation
+    except (json.JSONDecodeError, AttributeError, TypeError):
+        speed_perturbation_parsed = TRAINING_DEFAULTS.speed_perturbation
+    try:
+        volume_augmentation_parsed = json.loads(volume_augmentation) if volume_augmentation and volume_augmentation.strip() else TRAINING_DEFAULTS.volume_augmentation
+    except (json.JSONDecodeError, AttributeError, TypeError):
+        volume_augmentation_parsed = TRAINING_DEFAULTS.volume_augmentation
+    
     logger.debug(
         f"학습 파라미터 | model_id={model_id} | sample_rate={sample_rate} | "
         f"total_epoch={total_epoch} | batch_size={batch_size} | embedder_model={embedder_model} | "
-        f"vocoder={vocoder} | custom_pretrained={custom_pretrained}"
+        f"vocoder={vocoder} | custom_pretrained={custom_pretrained} | "
+        f"enable_augmentation={enable_augmentation}"
     )
 
     try:
@@ -87,6 +103,9 @@ async def start_training(
             g_pretrained_path=g_pretrained_path,
             d_pretrained_path=d_pretrained_path,
             model_description=model_description,
+            enable_augmentation=enable_augmentation,
+            speed_perturbation=speed_perturbation_parsed,
+            volume_augmentation=volume_augmentation_parsed,
         )
 
         # 비동기 작업 등록

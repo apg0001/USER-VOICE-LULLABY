@@ -493,6 +493,9 @@ def run_preprocess_script(
     chunk_len: float,
     overlap_len: float,
     normalization_mode: str = "none",
+    enable_augmentation: bool = False,
+    speed_perturbation: list = None,
+    volume_augmentation: list = None,
 ):
     preprocess_script_path = os.path.join(
         "applio", "rvc", "train", "preprocess", "preprocess.py"
@@ -514,6 +517,9 @@ def run_preprocess_script(
                 chunk_len,
                 overlap_len,
                 normalization_mode,
+                enable_augmentation,
+                json.dumps(speed_perturbation) if speed_perturbation else "",
+                json.dumps(volume_augmentation) if volume_augmentation else "",
             ],
         ),
     ]

@@ -42,6 +42,9 @@ class TrainingService:
         g_pretrained_path: Optional[str] = None,
         d_pretrained_path: Optional[str] = None,
         model_description: Optional[str] = None,
+        enable_augmentation: Optional[bool] = None,
+        speed_perturbation: Optional[list] = None,
+        volume_augmentation: Optional[list] = None,
     ) -> dict:
         """모델 학습 실행"""
         return await _train_model(
@@ -57,6 +60,9 @@ class TrainingService:
             g_pretrained_path=g_pretrained_path,
             d_pretrained_path=d_pretrained_path,
             model_description=model_description,
+            enable_augmentation=enable_augmentation,
+            speed_perturbation=speed_perturbation,
+            volume_augmentation=volume_augmentation,
         )
 
     async def train_from_request(self, request: TrainFilesRequest) -> dict:
@@ -74,4 +80,7 @@ class TrainingService:
             g_pretrained_path=request.g_pretrained_path,
             d_pretrained_path=request.d_pretrained_path,
             model_description=request.model_description,
+            enable_augmentation=request.enable_augmentation,
+            speed_perturbation=request.speed_perturbation,
+            volume_augmentation=request.volume_augmentation,
         )

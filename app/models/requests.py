@@ -21,6 +21,9 @@ class TrainFilesRequest(BaseModel):
     g_pretrained_path: Optional[str] = None
     d_pretrained_path: Optional[str] = None
     model_description: Optional[str] = None
+    enable_augmentation: Optional[bool] = None
+    speed_perturbation: Optional[list] = None
+    volume_augmentation: Optional[list] = None
 
 
 class InferenceFilesRequest(BaseModel):

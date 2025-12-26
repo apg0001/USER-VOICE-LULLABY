@@ -444,6 +444,9 @@ async def train_model(
     g_pretrained_path: str = None,
     d_pretrained_path: str = None,
     model_description: Optional[str] = None,
+    enable_augmentation: Optional[bool] = None,
+    speed_perturbation: Optional[list] = None,
+    volume_augmentation: Optional[list] = None,
 ) -> dict:
     """모델 학습 실행
     
@@ -619,6 +622,9 @@ async def train_model(
         defaults.chunk_len,
         defaults.overlap_len,
         defaults.normalization_mode,
+        enable_augmentation,
+        speed_perturbation,
+        volume_augmentation,
     )
     _log_memory_usage("전처리 완료 후")
 

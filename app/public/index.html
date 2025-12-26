@@ -140,6 +140,30 @@
             ></textarea>
           </label>
           <label>
+            데이터 증강 (선택)
+            <input name="enable_augmentation" type="checkbox" id="enable-augmentation-checkbox" />
+          </label>
+          <div id="augmentation-params" style="display: none; margin-left: 1rem">
+            <label>
+              Speed Perturbation (선택, JSON 배열 형식: [0.9, 1.1])
+              <input
+                name="speed_perturbation"
+                type="text"
+                placeholder='[0.9, 1.1]'
+                value="[0.9, 1.1]"
+              />
+            </label>
+            <label>
+              Volume Augmentation (선택, JSON 배열 형식: [0.9, 1.1])
+              <input
+                name="volume_augmentation"
+                type="text"
+                placeholder='[0.9, 1.1]'
+                value="[0.9, 1.1]"
+              />
+            </label>
+          </div>
+          <label>
             학습용 음성 파일들 (mp3/wav, 다중 선택 가능)
             <input
               name="files"

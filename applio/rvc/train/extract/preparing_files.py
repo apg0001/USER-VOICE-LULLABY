@@ -32,7 +32,7 @@ def generate_filelist(model_path: str, sample_rate: int, include_mutes: int = 2)
 
     try:
         model_info_path = os.path.join(model_path, "model_info.json")
-        with open(model_info_path, "r") as f:
+        with open(model_info_path, "r", encoding="utf-8") as f:
             model_info = json.load(f)
             embedder_name = model_info["embedder_model"]
     except:
@@ -71,7 +71,7 @@ def generate_filelist(model_path: str, sample_rate: int, include_mutes: int = 2)
 
     file_path = os.path.join(model_path, "model_info.json")
     if os.path.exists(file_path):
-        with open(file_path, "r") as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
     else:
         data = {}
@@ -80,8 +80,8 @@ def generate_filelist(model_path: str, sample_rate: int, include_mutes: int = 2)
             "speakers_id": len(sids),
         }
     )
-    with open(file_path, "w") as f:
-        json.dump(data, f, indent=4)
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
 
     shuffle(options)
 

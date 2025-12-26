@@ -202,6 +202,22 @@ document
       pretrainedGroup.style.display =
         e.target.value === "true" ? "block" : "none";
     }
+    // 기본값이 true이면 pretrained-model-group을 표시
+    if (e.target.value === "true" || e.target.value === "") {
+      if (pretrainedGroup) {
+        pretrainedGroup.style.display = "block";
+      }
+    }
+  });
+
+// 데이터 증강 체크박스 이벤트 리스너
+document
+  .getElementById("enable-augmentation-checkbox")
+  ?.addEventListener("change", (e) => {
+    const augmentationParams = document.getElementById("augmentation-params");
+    if (augmentationParams) {
+      augmentationParams.style.display = e.target.checked ? "block" : "none";
+    }
   });
 
 // G 사전 학습 모델 선택 시 경로 업데이트
@@ -683,6 +699,40 @@ document
 // 페이지 로드 시 모델 리스트 자동 로드
 loadModels();
 
+// 페이지 로드 시 사전 학습 모델 기본값 설정
+window.addEventListener("load", () => {
+  // Custom Pretrained를 기본값으로 활성화
+  const customPretrainedSelect = document.getElementById("custom-pretrained-select");
+  if (customPretrainedSelect && customPretrainedSelect.value === "") {
+    customPretrainedSelect.value = "true";
+    // pretrained-model-group 표시
+    const pretrainedGroup = document.getElementById("pretrained-model-group");
+    if (pretrainedGroup) {
+      pretrainedGroup.style.display = "block";
+    }
+  }
+  
+  // 사전 학습 모델 드롭다운 업데이트 (KLM_4.1_pretrained 기본값 설정)
+  updatePretrainedModelDropdowns();
+});
+
+// 페이지 로드 시 사전 학습 모델 기본값 설정
+document.addEventListener("DOMContentLoaded", () => {
+  // Custom Pretrained를 기본값으로 활성화
+  const customPretrainedSelect = document.getElementById("custom-pretrained-select");
+  if (customPretrainedSelect) {
+    customPretrainedSelect.value = "true";
+    // pretrained-model-group 표시
+    const pretrainedGroup = document.getElementById("pretrained-model-group");
+    if (pretrainedGroup) {
+      pretrainedGroup.style.display = "block";
+    }
+  }
+  
+  // 사전 학습 모델 드롭다운 업데이트 (KLM_4.1_pretrained 기본값 설정)
+  updatePretrainedModelDropdowns();
+});
+
 // 추론 결과 리스트 조회
 const refreshOutputs = async () => {
   try {
@@ -761,6 +811,17 @@ document
           "model_description",
           form.model_description.value.trim()
         );
+      }
+      
+      // 데이터 증강 파라미터
+      if (form.enable_augmentation?.checked) {
+        formData.append("enable_augmentation", "true");
+        if (form.speed_perturbation?.value.trim().length > 0) {
+          formData.append("speed_perturbation", form.speed_perturbation.value);
+        }
+        if (form.volume_augmentation?.value.trim().length > 0) {
+          formData.append("volume_augmentation", form.volume_augmentation.value);
+        }
       }
 
       // multiple 파일들 추가

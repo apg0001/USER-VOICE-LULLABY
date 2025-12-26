@@ -42,11 +42,14 @@ class TrainingDefaults:
     cleanup: bool = False
     cache_data_in_gpu: bool = False
     index_algorithm: str = "Auto"
-    custom_pretrained: bool = False
-    g_pretrained_path: str = None
-    d_pretrained_path: str = None
+    custom_pretrained: bool = True  # 기본값을 True로 변경
+    g_pretrained_path: str = None  # 기본값은 None, UI에서 자동 설정
+    d_pretrained_path: str = None  # 기본값은 None, UI에서 자동 설정
     vocoder: str = "HiFi-GAN"
     checkpointing: bool = False
+    enable_augmentation: bool = False
+    speed_perturbation: list = None
+    volume_augmentation: list = None
 
 
 @dataclass(frozen=True)
